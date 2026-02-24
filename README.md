@@ -22,9 +22,14 @@ The plugin uses two adapter hooks provided by the core plugin:
 
 The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookies. It relies entirely on the core plugin's infrastructure.
 
-### Current Status
+### Features
 
-Click-ID capture stores `gclid` parameters automatically when visitors arrive via Google Ads tracking URLs. The settings page (Settings > Google Ads Attribution) provides fields for all required API credentials, conversion defaults, and a **Test Connection** button that verifies credentials by performing a live OAuth2 token refresh. Conversions are always queued regardless of credential status — if credentials are missing or invalid at queue time, they are filled in from current settings when the job is processed. Failed jobs are automatically reset when settings are updated with valid credentials. A persistent admin notice warns when uploads fail due to missing or invalid credentials.
+- Automatically captures `gclid` parameters when visitors arrive via Google Ads tracking URLs.
+- Queues and uploads conversions to Google Ads via the Offline Conversion Upload API.
+- Resilient queuing — conversions are always queued regardless of credential status. Missing credentials are filled in from current settings when the job is processed.
+- Failed jobs are automatically reset when settings are updated with valid credentials.
+- **Test Connection** button verifies OAuth2 credentials by performing a live token refresh.
+- Persistent admin notice warns when uploads fail due to missing or invalid credentials.
 
 ### Settings Page
 

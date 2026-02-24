@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WordPress add-on plugin for Kntnt Ad Attribution that adds Google Ads offline conversion tracking. Captures `gclid` parameters from ad clicks and reports conversions back to Google Ads via the Offline Conversion Upload API.
 
-**Current status:** Gclid capture, settings UI, conversion reporting, resilient queuing, and credential error notifications are implemented. The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) for API credentials, conversion defaults, and a test connection button. Conversions are always queued regardless of credential status — missing credentials are filled in from current settings at processing time. Failed queue jobs are automatically reset when credentials are updated. A persistent admin notice warns when uploads fail due to missing or invalid credentials.
+The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) for API credentials, conversion defaults, and a test connection button. Conversions are always queued regardless of credential status — missing credentials are filled in from current settings at processing time. Failed queue jobs are automatically reset when credentials are updated. A persistent admin notice warns when uploads fail due to missing or invalid credentials.
 
 ## Naming Conventions
 
@@ -159,12 +159,6 @@ ddev here vendor/bin/pest --filter Dependencies
 - All SQL via `$wpdb->prepare()`. All admin URLs via `admin_url()`. All superglobals sanitized.
 - Errors are silent toward visitors, logged via `error_log()`.
 - JavaScript: ES6+, IIFE with `'use strict'`, `const` default, arrow functions, `fetch` over jQuery.
-
-## Remaining Work
-
-The core flow (gclid capture → attribution → queue → Google Ads upload) is complete with resilient queuing, a test connection button, and credential error admin notices. The following items remain before production use:
-
-1. **Smoke test against real Google Ads API** — All tests are unit tests with mocked HTTP calls. The plugin has never communicated with the real API. A manual verification with actual credentials is needed to confirm that payload format, headers, and authentication are accepted by Google. The Test Connection button can verify OAuth2 credentials.
 
 ## Known Gotchas
 
