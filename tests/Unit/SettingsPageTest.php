@@ -112,7 +112,7 @@ describe('Settings_Page::sanitize_settings()', function () {
 
 describe('Settings_Page constructor', function () {
 
-    it('registers admin_menu and admin_init hooks when is_admin is true', function () {
+    it('registers admin hooks and AJAX handler when is_admin is true', function () {
         $hooks = [];
 
         Functions\when('is_admin')->justReturn(true);
@@ -125,6 +125,8 @@ describe('Settings_Page constructor', function () {
 
         expect($hooks)->toContain('admin_menu');
         expect($hooks)->toContain('admin_init');
+        expect($hooks)->toContain('admin_enqueue_scripts');
+        expect($hooks)->toContain('wp_ajax_kntnt_ad_attr_gads_test_connection');
     });
 
     it('does not register hooks when is_admin is false', function () {
@@ -153,8 +155,9 @@ describe('Settings_Page::add_page()', function () {
         $captured = [];
 
         Functions\when('add_options_page')->alias(
-            function () use (&$captured): void {
+            function () use (&$captured): string {
                 $captured = func_get_args();
+                return 'settings_page_kntnt-ad-attr-gads';
             },
         );
 
@@ -186,14 +189,142 @@ describe('Settings_Page::register_settings()', function () {
             });
 
         // Stub the remaining Settings API calls made by register_settings().
+        // 7 credential fields + 1 test connection field = 8 in credentials section.
         Functions\expect('add_settings_section')->twice();
-        Functions\expect('add_settings_field')->times(9);
+        Functions\expect('add_settings_field')->times(10);
 
         $settings = Mockery::mock(Settings::class);
         $page     = new Settings_Page($settings);
         $page->register_settings();
 
         expect($captured_args['sanitize_callback'])->toBe([$page, 'sanitize_settings']);
+    });
+
+});
+
+// ─── handle_test_connection() ───
+
+describe('Settings_Page::handle_test_connection()', function () {
+
+    it('returns error when not configured', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\expect('check_ajax_referer')
+            ->once()
+            ->with('kntnt_ad_attr_gads_test_connection', 'nonce');
+        Functions\expect('current_user_can')
+            ->once()
+            ->with('manage_options')
+            ->andReturn(true);
+
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('is_configured')->once()->andReturn(false);
+
+        $error_sent = null;
+        Functions\expect('wp_send_json_error')
+            ->once()
+            ->withArgs(function (array $data) use (&$error_sent) {
+                $error_sent = $data;
+                return true;
+            });
+
+        $page = new Settings_Page($settings);
+        $page->handle_test_connection();
+
+        expect($error_sent['message'])->toContain('required credentials');
+    });
+
+    it('returns success on successful token refresh', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\expect('check_ajax_referer')
+            ->once()
+            ->with('kntnt_ad_attr_gads_test_connection', 'nonce');
+        Functions\expect('current_user_can')
+            ->once()
+            ->with('manage_options')
+            ->andReturn(true);
+
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('is_configured')->once()->andReturn(true);
+        $settings->shouldReceive('get_all')->once()->andReturn([
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+        ]);
+
+        // Stub token refresh HTTP call.
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'access_token' => 'fresh_token',
+                    'expires_in'   => 3600,
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('set_transient')->once()->andReturn(true);
+
+        $success_sent = null;
+        Functions\expect('wp_send_json_success')
+            ->once()
+            ->withArgs(function (array $data) use (&$success_sent) {
+                $success_sent = $data;
+                return true;
+            });
+
+        $page = new Settings_Page($settings);
+        $page->handle_test_connection();
+
+        expect($success_sent['message'])->toContain('successful');
+    });
+
+});
+
+// ─── enqueue_scripts() ───
+
+describe('Settings_Page::enqueue_scripts()', function () {
+
+    it('enqueues script only on the settings page', function () {
+        Functions\when('is_admin')->justReturn(false);
+
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings);
+
+        // Simulate add_page() having set the page hook.
+        Functions\when('add_options_page')->justReturn('settings_page_kntnt-ad-attr-gads');
+        $page->add_page();
+
+        // Should not enqueue on a different page.
+        $enqueued = false;
+        Functions\when('wp_enqueue_script')->alias(function () use (&$enqueued) {
+            $enqueued = true;
+        });
+
+        $page->enqueue_scripts('edit.php');
+        expect($enqueued)->toBeFalse();
+
+        // Should enqueue on the correct page.
+        Functions\when('plugins_url')->justReturn('http://example.com/js/settings-page.js');
+        Functions\when('wp_localize_script')->justReturn(true);
+        Functions\when('admin_url')->justReturn('http://example.com/wp-admin/admin-ajax.php');
+        Functions\when('wp_create_nonce')->justReturn('test_nonce');
+
+        $page->enqueue_scripts('settings_page_kntnt-ad-attr-gads');
+        expect($enqueued)->toBeTrue();
     });
 
 });

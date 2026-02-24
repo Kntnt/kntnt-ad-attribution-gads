@@ -2,8 +2,9 @@
 /**
  * WordPress settings page for Google Ads API configuration.
  *
- * Registers an options page under Settings → Google Ads Attribution with
- * fields for API credentials and conversion defaults.
+ * Registers an options page under Settings > Google Ads Attribution with
+ * fields for API credentials and conversion defaults. Includes a test
+ * connection button that verifies credentials via AJAX.
  *
  * @package Kntnt\Ad_Attribution_Gads
  * @since   0.2.0
@@ -57,6 +58,14 @@ final class Settings_Page {
 	private const SECTION_CONVERSION = 'kntnt_ad_attr_gads_conversion';
 
 	/**
+	 * AJAX action name for testing the connection.
+	 *
+	 * @var string
+	 * @since 0.4.0
+	 */
+	private const AJAX_TEST_CONNECTION = 'kntnt_ad_attr_gads_test_connection';
+
+	/**
 	 * ISO 4217 currency codes supported by Google Ads.
 	 *
 	 * @var string[]
@@ -80,6 +89,14 @@ final class Settings_Page {
 	private readonly Settings $settings;
 
 	/**
+	 * Hook suffix returned by add_options_page(), used for script enqueuing.
+	 *
+	 * @var string|null
+	 * @since 0.4.0
+	 */
+	private ?string $page_hook = null;
+
+	/**
 	 * Constructs the settings page and registers admin hooks.
 	 *
 	 * @param Settings $settings Settings instance for data access.
@@ -93,6 +110,8 @@ final class Settings_Page {
 		if ( is_admin() ) {
 			add_action( 'admin_menu', [ $this, 'add_page' ] );
 			add_action( 'admin_init', [ $this, 'register_settings' ] );
+			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
+			add_action( 'wp_ajax_' . self::AJAX_TEST_CONNECTION, [ $this, 'handle_test_connection' ] );
 		}
 	}
 
@@ -103,7 +122,7 @@ final class Settings_Page {
 	 * @since 0.2.0
 	 */
 	public function add_page(): void {
-		add_options_page(
+		$this->page_hook = add_options_page(
 			__( 'Google Ads Attribution', 'kntnt-ad-attr-gads' ),
 			__( 'Google Ads Attribution', 'kntnt-ad-attr-gads' ),
 			'manage_options',
@@ -213,6 +232,80 @@ final class Settings_Page {
 	}
 
 	/**
+	 * Enqueues the settings page JavaScript on our admin page only.
+	 *
+	 * @param string $hook The current admin page hook suffix.
+	 *
+	 * @return void
+	 * @since 0.4.0
+	 */
+	public function enqueue_scripts( string $hook ): void {
+
+		// Only load on our settings page.
+		if ( $hook !== $this->page_hook ) {
+			return;
+		}
+
+		wp_enqueue_script(
+			'kntnt-ad-attr-gads-settings',
+			plugins_url( 'js/settings-page.js', dirname( __FILE__ ) ),
+			[],
+			false,
+			true,
+		);
+
+		wp_localize_script( 'kntnt-ad-attr-gads-settings', 'kntntAdAttrGads', [
+			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+			'nonce'   => wp_create_nonce( self::AJAX_TEST_CONNECTION ),
+			'action'  => self::AJAX_TEST_CONNECTION,
+		] );
+	}
+
+	/**
+	 * Handles the AJAX test connection request.
+	 *
+	 * Verifies nonce and capability, creates a Google_Ads_Client from
+	 * current settings, and attempts a fresh token refresh.
+	 *
+	 * @return void
+	 * @since 0.4.0
+	 */
+	public function handle_test_connection(): void {
+		check_ajax_referer( self::AJAX_TEST_CONNECTION, 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'kntnt-ad-attr-gads' ) ] );
+			return;
+		}
+
+		// Require all credentials before testing.
+		if ( ! $this->settings->is_configured() ) {
+			wp_send_json_error( [ 'message' => __( 'Please fill in all required credentials first.', 'kntnt-ad-attr-gads' ) ] );
+			return;
+		}
+
+		$settings = $this->settings->get_all();
+
+		$client = new Google_Ads_Client(
+			customer_id: $settings['customer_id'],
+			developer_token: $settings['developer_token'],
+			client_id: $settings['client_id'],
+			client_secret: $settings['client_secret'],
+			refresh_token: $settings['refresh_token'],
+			login_customer_id: $settings['login_customer_id'],
+		);
+
+		$result = $client->test_connection();
+
+		if ( $result['success'] ) {
+			wp_send_json_success( [ 'message' => __( 'Connection successful! OAuth2 token refresh succeeded.', 'kntnt-ad-attr-gads' ) ] );
+			return;
+		}
+
+		wp_send_json_error( [ 'message' => $result['error'] ] );
+	}
+
+	/**
 	 * Registers API credential fields.
 	 *
 	 * @return void
@@ -263,6 +356,15 @@ final class Settings_Page {
 				[ 'label_for' => $key ],
 			);
 		}
+
+		// Test connection button (not a form field — no name attribute).
+		add_settings_field(
+			'test_connection',
+			__( 'Test Connection', 'kntnt-ad-attr-gads' ),
+			[ $this, 'render_test_connection_field' ],
+			self::PAGE_SLUG,
+			self::SECTION_CREDENTIALS,
+		);
 	}
 
 	/**
@@ -292,6 +394,22 @@ final class Settings_Page {
 			self::SECTION_CONVERSION,
 			[ 'label_for' => 'currency_code' ],
 		);
+	}
+
+	/**
+	 * Renders the test connection button and result area.
+	 *
+	 * This is a UI-only field — no input name, not part of the form data.
+	 *
+	 * @return void
+	 * @since 0.4.0
+	 */
+	public function render_test_connection_field(): void {
+		printf(
+			'<button type="button" id="kntnt-ad-attr-gads-test-connection" class="button button-secondary">%s</button> ',
+			esc_html__( 'Test Connection', 'kntnt-ad-attr-gads' ),
+		);
+		echo '<span id="kntnt-ad-attr-gads-test-result"></span>';
 	}
 
 	/**

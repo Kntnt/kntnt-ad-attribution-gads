@@ -24,7 +24,7 @@ The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookie
 
 ### Current Status
 
-Version 0.3.0 completes the conversion reporting pipeline. Click-ID capture stores `gclid` parameters automatically when visitors arrive via Google Ads tracking URLs. The settings page (Settings > Google Ads Attribution) provides fields for all required API credentials and conversion defaults. When the core plugin attributes a conversion to a click with a `gclid`, the conversion is queued and asynchronously uploaded to Google Ads via the Offline Conversion Upload API.
+Version 0.4.0 adds resilient queuing and a test connection button. Click-ID capture stores `gclid` parameters automatically when visitors arrive via Google Ads tracking URLs. The settings page (Settings > Google Ads Attribution) provides fields for all required API credentials, conversion defaults, and a **Test Connection** button that verifies credentials by performing a live OAuth2 token refresh. Conversions are always queued regardless of credential status — if credentials are missing or invalid at queue time, they are filled in from current settings when the job is processed. Failed jobs are automatically reset when settings are updated with valid credentials.
 
 ### Settings Page
 
@@ -36,6 +36,7 @@ Navigate to **Settings > Google Ads Attribution** to configure the plugin. The p
 - Developer Token
 - OAuth2 Client ID, Client Secret, and Refresh Token
 - Login Customer ID (MCC) — optional, only needed for manager accounts
+- **Test Connection** button — verifies that your OAuth2 credentials can obtain an access token from Google
 
 **Conversion Defaults:**
 - Default Conversion Value (numeric, >= 0)
@@ -182,6 +183,8 @@ kntnt-ad-attribution-gads/
 │   ├── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
 │   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
+├── js/
+│   └── settings-page.js              ← Test connection button AJAX handler
 └── tests/
     ├── bootstrap.php                  ← Patchwork init + final-stripping
     ├── Helpers/

@@ -46,6 +46,59 @@ function stub_response_helpers(): void {
     );
 }
 
+// ─── test_connection() ───
+
+describe('Google_Ads_Client::test_connection()', function () {
+
+    it('succeeds when token refresh succeeds', function () {
+        stub_response_helpers();
+
+        // Token refresh request succeeds.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'access_token' => 'fresh_token',
+                    'expires_in'   => 3600,
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        Functions\expect('set_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token', 'fresh_token', 3300)
+            ->andReturn(true);
+
+        $client = make_client();
+        $result = $client->test_connection();
+
+        expect($result)->toBe(['success' => true, 'error' => '']);
+    });
+
+    it('fails when token refresh fails', function () {
+        stub_response_helpers();
+
+        // Token refresh returns error.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['error' => 'invalid_grant']),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Failed to obtain access token.');
+    });
+
+});
+
 // ─── upload_click_conversion() — success with cached token ───
 
 describe('Google_Ads_Client::upload_click_conversion()', function () {

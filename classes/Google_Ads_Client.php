@@ -78,6 +78,25 @@ final class Google_Ads_Client {
 	) {}
 
 	/**
+	 * Tests the connection by forcing a fresh OAuth2 token refresh.
+	 *
+	 * Bypasses the transient cache to verify that the current credentials
+	 * can successfully obtain an access token from Google.
+	 *
+	 * @return array{success: bool, error: string} Result with success flag and error message.
+	 * @since 0.4.0
+	 */
+	public function test_connection(): array {
+		$token = $this->refresh_access_token();
+
+		if ( $token === null ) {
+			return [ 'success' => false, 'error' => 'Failed to obtain access token.' ];
+		}
+
+		return [ 'success' => true, 'error' => '' ];
+	}
+
+	/**
 	 * Uploads a single click conversion to Google Ads.
 	 *
 	 * @param string $gclid               Google click identifier.

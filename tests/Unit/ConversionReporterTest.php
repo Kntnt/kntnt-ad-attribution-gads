@@ -31,13 +31,31 @@ function default_settings(): array {
     ];
 }
 
+/**
+ * Returns a settings array with all credential fields empty.
+ *
+ * @return array<string,string>
+ */
+function empty_settings(): array {
+    return [
+        'customer_id'          => '',
+        'conversion_action_id' => '',
+        'developer_token'      => '',
+        'client_id'            => '',
+        'client_secret'        => '',
+        'refresh_token'        => '',
+        'login_customer_id'    => '',
+        'conversion_value'     => '0',
+        'currency_code'        => 'SEK',
+    ];
+}
+
 // ─── register() ───
 
 describe('Conversion_Reporter::register()', function () {
 
-    it('registers when settings are configured', function () {
+    it('always registers regardless of configuration state', function () {
         $settings = Mockery::mock(Settings::class);
-        $settings->shouldReceive('is_configured')->once()->andReturn(true);
 
         $reporter = new Conversion_Reporter($settings);
         $result   = $reporter->register([]);
@@ -47,19 +65,8 @@ describe('Conversion_Reporter::register()', function () {
         expect($result['google_ads']['process'])->toBeArray();
     });
 
-    it('does not register when settings are not configured', function () {
-        $settings = Mockery::mock(Settings::class);
-        $settings->shouldReceive('is_configured')->once()->andReturn(false);
-
-        $reporter = new Conversion_Reporter($settings);
-        $result   = $reporter->register([]);
-
-        expect($result)->not->toHaveKey('google_ads');
-    });
-
     it('preserves existing reporters', function () {
         $settings = Mockery::mock(Settings::class);
-        $settings->shouldReceive('is_configured')->once()->andReturn(true);
 
         $existing = [
             'meta_ads' => [
@@ -81,7 +88,7 @@ describe('Conversion_Reporter::register()', function () {
 
 describe('Conversion_Reporter::enqueue()', function () {
 
-    it('builds payload for a single attribution with gclid', function () {
+    it('builds payload with raw values for a single attribution', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
@@ -96,8 +103,9 @@ describe('Conversion_Reporter::enqueue()', function () {
 
         expect($payloads)->toHaveCount(1);
         expect($payloads[0]['gclid'])->toBe('gclid_abc');
-        expect($payloads[0]['conversion_action'])->toBe('customers/1234567890/conversionActions/99');
-        expect($payloads[0]['conversion_value'])->toBe(1000.0);
+        expect($payloads[0]['attribution_fraction'])->toBe(1.0);
+        expect($payloads[0]['conversion_action_id'])->toBe('99');
+        expect($payloads[0]['conversion_value'])->toBe('1000');
         expect($payloads[0]['currency_code'])->toBe('SEK');
         expect($payloads[0]['customer_id'])->toBe('1234567890');
     });
@@ -142,10 +150,12 @@ describe('Conversion_Reporter::enqueue()', function () {
         // Only hash_a and hash_b have gclids.
         expect($payloads)->toHaveCount(2);
         expect($payloads[0]['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['attribution_fraction'])->toBe(0.5);
         expect($payloads[1]['gclid'])->toBe('gclid_b');
+        expect($payloads[1]['attribution_fraction'])->toBe(0.3);
     });
 
-    it('applies fractional attribution to conversion value', function () {
+    it('stores attribution_fraction as raw value', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
@@ -158,8 +168,9 @@ describe('Conversion_Reporter::enqueue()', function () {
 
         $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
 
-        // 1000 * 0.25 = 250.0
-        expect($payloads[0]['conversion_value'])->toBe(250.0);
+        // Raw fraction stored, not pre-computed value.
+        expect($payloads[0]['attribution_fraction'])->toBe(0.25);
+        expect($payloads[0]['conversion_value'])->toBe('1000');
     });
 
     it('returns empty array when no gclids exist', function () {
@@ -222,14 +233,35 @@ describe('Conversion_Reporter::enqueue()', function () {
         expect($payloads[0]['client_secret'])->toBe('secret');
     });
 
+    it('works with empty settings and snapshots empty strings', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        $reporter = new Conversion_Reporter($settings);
+
+        $attributions = ['hash_a' => 1.0];
+        $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
+        $campaigns    = [];
+        $context      = ['timestamp' => '2026-01-15 10:30:00'];
+
+        $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
+
+        // Payload is built even with empty credentials.
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['gclid'])->toBe('gclid_abc');
+        expect($payloads[0]['customer_id'])->toBe('');
+        expect($payloads[0]['developer_token'])->toBe('');
+    });
+
 });
 
 // ─── process() ───
 
 describe('Conversion_Reporter::process()', function () {
 
-    it('returns true on successful upload', function () {
+    it('uses payload credentials when present', function () {
         $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
 
         // Stub the HTTP functions used by Google_Ads_Client.
         Functions\expect('get_transient')
@@ -247,6 +279,10 @@ describe('Conversion_Reporter::process()', function () {
 
         Functions\expect('wp_remote_post')
             ->once()
+            ->withArgs(function (string $url, array $args) {
+                // Verify the URL uses the payload's customer_id.
+                return str_contains($url, 'customers/1234567890:uploadClickConversions');
+            })
             ->andReturn([
                 'response' => ['code' => 200],
                 'body'     => json_encode(['results' => [[]]]),
@@ -256,24 +292,162 @@ describe('Conversion_Reporter::process()', function () {
 
         $reporter = new Conversion_Reporter($settings);
         $result   = $reporter->process([
-            'gclid'               => 'gclid_abc',
-            'conversion_action'   => 'customers/1234567890/conversionActions/99',
-            'conversion_datetime' => '2026-01-15 10:30:00+01:00',
-            'conversion_value'    => 1000.0,
-            'currency_code'       => 'SEK',
-            'customer_id'         => '1234567890',
-            'developer_token'     => 'dev_token',
-            'client_id'           => 'client.apps.googleusercontent.com',
-            'client_secret'       => 'secret',
-            'refresh_token'       => 'refresh_abc',
-            'login_customer_id'   => '',
+            'gclid'                => 'gclid_abc',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
         ]);
 
         expect($result)->toBeTrue();
     });
 
+    it('falls back to current settings when payload credentials are empty', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
+
+        // Stub the HTTP functions used by Google_Ads_Client.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->withArgs(function (string $url, array $args) {
+                // Settings fallback provides customer_id 1234567890.
+                return str_contains($url, 'customers/1234567890:uploadClickConversions');
+            })
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['results' => [[]]]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $reporter = new Conversion_Reporter($settings);
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_abc',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 0.5,
+            'customer_id'          => '',
+            'conversion_action_id' => '',
+            'conversion_value'     => '',
+            'currency_code'        => '',
+            'developer_token'      => '',
+            'client_id'            => '',
+            'client_secret'        => '',
+            'refresh_token'        => '',
+            'login_customer_id'    => '',
+        ]);
+
+        expect($result)->toBeTrue();
+    });
+
+    it('returns false when no credentials available anywhere', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        // error_log is a redefinable internal in patchwork.json.
+        $logged = null;
+        \Patchwork\redefine('error_log', function (string $message) use (&$logged) {
+            $logged = $message;
+            return true;
+        });
+
+        $reporter = new Conversion_Reporter($settings);
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_abc',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '',
+            'conversion_action_id' => '',
+            'conversion_value'     => '',
+            'currency_code'        => '',
+            'developer_token'      => '',
+            'client_id'            => '',
+            'client_secret'        => '',
+            'refresh_token'        => '',
+            'login_customer_id'    => '',
+        ]);
+
+        expect($result)->toBeFalse();
+        expect($logged)->toContain('required credentials still missing');
+
+        \Patchwork\restoreAll();
+    });
+
+    it('computes attributed value from fraction and merged conversion value', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
+
+        // Stub HTTP functions.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        // Capture the uploaded body to verify computed value.
+        $uploaded_body = null;
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->withArgs(function (string $url, array $args) use (&$uploaded_body) {
+                $uploaded_body = json_decode($args['body'], true);
+                return true;
+            })
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['results' => [[]]]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $reporter = new Conversion_Reporter($settings);
+        $reporter->process([
+            'gclid'                => 'gclid_abc',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 0.25,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
+        ]);
+
+        // 1000 * 0.25 = 250.0 (json_encode may produce integer 250).
+        expect((float) $uploaded_body['conversions'][0]['conversionValue'])->toBe(250.0);
+    });
+
     it('returns false on failure and logs error', function () {
         $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
 
         // Stub HTTP functions for a failure scenario.
         Functions\expect('get_transient')
@@ -307,17 +481,18 @@ describe('Conversion_Reporter::process()', function () {
 
         $reporter = new Conversion_Reporter($settings);
         $result   = $reporter->process([
-            'gclid'               => 'gclid_abc',
-            'conversion_action'   => 'customers/1234567890/conversionActions/99',
-            'conversion_datetime' => '2026-01-15 10:30:00+01:00',
-            'conversion_value'    => 1000.0,
-            'currency_code'       => 'SEK',
-            'customer_id'         => '1234567890',
-            'developer_token'     => 'dev_token',
-            'client_id'           => 'client.apps.googleusercontent.com',
-            'client_secret'       => 'secret',
-            'refresh_token'       => 'refresh_abc',
-            'login_customer_id'   => '',
+            'gclid'                => 'gclid_abc',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
         ]);
 
         expect($result)->toBeFalse();
@@ -325,6 +500,51 @@ describe('Conversion_Reporter::process()', function () {
         expect($logged)->toContain('HTTP 403');
 
         \Patchwork\restoreAll();
+    });
+
+});
+
+// ─── reset_failed_jobs() ───
+
+describe('Conversion_Reporter::reset_failed_jobs()', function () {
+
+    afterEach(function () {
+        unset($GLOBALS['wpdb']);
+    });
+
+    it('executes correct SQL and schedules queue processing', function () {
+        $settings = Mockery::mock(Settings::class);
+
+        $wpdb = \Tests\Helpers\TestFactory::wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+
+        // Verify the prepare call uses correct parameters.
+        $wpdb->shouldReceive('prepare')
+            ->once()
+            ->withArgs(function (string $sql, string $reporter) {
+                return str_contains($sql, "SET status = 'pending'")
+                    && str_contains($sql, "attempts = 0")
+                    && str_contains($sql, "status = 'failed'")
+                    && $reporter === 'google_ads';
+            })
+            ->andReturn('PREPARED_SQL');
+
+        $wpdb->shouldReceive('query')
+            ->once()
+            ->with('PREPARED_SQL')
+            ->andReturn(2);
+
+        Functions\expect('wp_schedule_single_event')
+            ->once()
+            ->withArgs(function (int $time, string $hook) {
+                return $hook === 'kntnt_ad_attr_process_queue';
+            });
+
+        $reporter = new Conversion_Reporter($settings);
+        $reporter->reset_failed_jobs();
+
+        // Mockery verifies prepare/query/schedule expectations on teardown.
+        expect(true)->toBeTrue();
     });
 
 });

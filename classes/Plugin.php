@@ -261,6 +261,27 @@ final class Plugin {
 
 		// Register conversion reporter for Google Ads offline upload.
 		add_filter( 'kntnt_ad_attr_conversion_reporters', [ $this->conversion_reporter, 'register' ] );
+
+		// Reset failed queue jobs when settings are updated with valid credentials.
+		add_action( 'update_option_' . Settings::OPTION_KEY, [ $this, 'on_settings_updated' ], 10, 2 );
+	}
+
+	/**
+	 * Resets failed queue jobs when settings are saved with valid credentials.
+	 *
+	 * Hooked to `update_option_{option}` so that credentials restored after
+	 * an outage automatically trigger reprocessing of queued conversions.
+	 *
+	 * @param mixed $old_value Previous option value (unused).
+	 * @param mixed $new_value New option value (unused — we re-read via Settings).
+	 *
+	 * @return void
+	 * @since 0.4.0
+	 */
+	public function on_settings_updated( mixed $old_value, mixed $new_value ): void {
+		if ( $this->settings->is_configured() ) {
+			$this->conversion_reporter->reset_failed_jobs();
+		}
 	}
 
 	/**

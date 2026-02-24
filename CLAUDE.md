@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WordPress add-on plugin for Kntnt Ad Attribution that adds Google Ads offline conversion tracking. Captures `gclid` parameters from ad clicks and reports conversions back to Google Ads via the Offline Conversion Upload API.
 
-**Current status (v0.3.0):** Gclid capture, settings UI, and conversion reporting are implemented. The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) for API credentials and conversion defaults, and reports conversions back to Google Ads via the Offline Conversion Upload API.
+**Current status (v0.4.0):** Gclid capture, settings UI, conversion reporting, and resilient queuing are implemented. The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) for API credentials, conversion defaults, and a test connection button. Conversions are always queued regardless of credential status — missing credentials are filled in from current settings at processing time. Failed queue jobs are automatically reset when credentials are updated.
 
 ## Naming Conventions
 
@@ -56,7 +56,7 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 - `kntnt_ad_attr_click_id_capturers` — registers `'google_ads' => 'gclid'` to capture click IDs
 - `kntnt_ad_attr_conversion_reporters` — registers enqueue/process callbacks for Google Ads API
 
-**Conversion reporting flow:** When the core plugin attributes a conversion to a click that has a `gclid`, the `Conversion_Reporter::enqueue()` callback snapshots all API credentials into a self-contained payload and returns it to the core's queue. Later, `Conversion_Reporter::process()` creates a `Google_Ads_Client` from the payload credentials and uploads the conversion to the Google Ads Offline Conversion Upload API via `wp_remote_post()`. OAuth2 access tokens are cached in the `kntnt_ad_attr_gads_access_token` transient with a safety margin.
+**Conversion reporting flow:** The `Conversion_Reporter` always registers regardless of credential status, so conversions are queued even during credential outages. `enqueue()` snapshots raw settings values (including `attribution_fraction` and `conversion_action_id`) into each payload. `process()` merges payload credentials with current settings as fallback — if the payload has empty credentials (queued during an outage), current settings fill the gaps. Derived values (resource name, attributed value) are computed at process time. If required credentials are still missing after merge, the job fails and will be retried. When settings are updated with valid credentials, `Plugin::on_settings_updated()` resets all failed Google Ads queue jobs to pending. The `Google_Ads_Client` handles OAuth2 token refresh and conversion upload via `wp_remote_post()`. Access tokens are cached in the `kntnt_ad_attr_gads_access_token` transient with a safety margin.
 
 The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookies. It uses the core plugin's infrastructure (Click_ID_Store, Queue, Queue_Processor).
 
@@ -80,6 +80,8 @@ kntnt-ad-attribution-gads/
 │   ├── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
 │   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
+├── js/
+│   └── settings-page.js              ← Test connection button AJAX handler
 ├── build-release-zip.sh               ← Release zip builder (local or from git tag)
 ├── run-tests.sh                       ← Test runner with DDEV auto-detection
 ├── composer.json                      ← Dependencies (Pest, Brain Monkey, Mockery)
@@ -102,7 +104,7 @@ kntnt-ad-attribution-gads/
         └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process tests
 ```
 
-**Directories that will be created in future versions:** `migrations/`, `js/`, `css/`, `languages/`, `docs/`
+**Directories that will be created in future versions:** `migrations/`, `css/`, `languages/`, `docs/`
 
 ## Tests
 
@@ -154,17 +156,15 @@ ddev here vendor/bin/pest --filter Dependencies
 
 ## Remaining Work
 
-The core flow (gclid capture → attribution → queue → Google Ads upload) is complete as of v0.3.0. The following items remain before production use:
+The core flow (gclid capture → attribution → queue → Google Ads upload) is complete with resilient queuing and a test connection button as of v0.4.0. The following items remain before production use:
 
-1. **Smoke test mot riktigt Google Ads API** — Alla tester är enhetstester med mockade HTTP-anrop. Pluginet har aldrig kommunicerat med det riktiga API:et. En manuell verifiering med faktiska credentials behövs för att bekräfta att payload-format, headers och autentisering accepteras av Google.
+1. **Smoke test mot riktigt Google Ads API** — Alla tester är enhetstester med mockade HTTP-anrop. Pluginet har aldrig kommunicerat med det riktiga API:et. En manuell verifiering med faktiska credentials behövs för att bekräfta att payload-format, headers och autentisering accepteras av Google. Testa anslutning-knappen kan användas för att verifiera OAuth2-credentials.
 
-2. **Admin-notis vid ogiltiga credentials** — Om refresh token blir ogiltig (användaren återkallar åtkomst, token löper ut) loggas felet via `error_log()`, men inget syns i admin. Konverteringar köas och misslyckas tyst. Överväg en admin notice som varnar när uploads har misslyckats.
+2. **Admin-notis vid ogiltiga credentials** — Om refresh token blir ogiltig (användaren återkallar åtkomst, token löper ut) loggas felet via `error_log()`, men inget syns i admin. Konverteringar köas och misslyckas tyst (men återställs automatiskt när credentials uppdateras). Överväg en admin notice som varnar när uploads har misslyckats.
 
-3. **"Testa anslutning"-knapp på inställningssidan** — Inställningssidan sparar credentials men ger ingen feedback om de fungerar. En AJAX-knapp som gör ett test-anrop (t.ex. token refresh) och visar resultatet skulle minska felsökningstid.
+3. **Översättningsfiler** — Alla strängar är förberedda med `__()` / `esc_html__()`, men inga `.pot`/`.po`/`.mo`-filer finns genererade ännu. Kör `wp i18n make-pot` för att skapa `.pot`-filen.
 
-4. **Översättningsfiler** — Alla strängar är förberedda med `__()` / `esc_html__()`, men inga `.pot`/`.po`/`.mo`-filer finns genererade ännu. Kör `wp i18n make-pot` för att skapa `.pot`-filen.
-
-5. **Dokumentation av OAuth2-setup i README** — Användaren behöver skaffa developer token, OAuth2 client ID/secret och refresh token manuellt (t.ex. via Google OAuth Playground). README beskriver inte den processen steg för steg.
+4. **Dokumentation av OAuth2-setup i README** — Användaren behöver skaffa developer token, OAuth2 client ID/secret och refresh token manuellt (t.ex. via Google OAuth Playground). README beskriver inte den processen steg för steg.
 
 ## Known Gotchas
 
