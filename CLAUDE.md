@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WordPress add-on plugin for Kntnt Ad Attribution that adds Google Ads offline conversion tracking. Captures `gclid` parameters from ad clicks and reports conversions back to Google Ads via the Offline Conversion Upload API.
 
-**Current status (v0.4.0):** Gclid capture, settings UI, conversion reporting, and resilient queuing are implemented. The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) for API credentials, conversion defaults, and a test connection button. Conversions are always queued regardless of credential status — missing credentials are filled in from current settings at processing time. Failed queue jobs are automatically reset when credentials are updated.
+**Current status:** Gclid capture, settings UI, conversion reporting, resilient queuing, and credential error notifications are implemented. The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) for API credentials, conversion defaults, and a test connection button. Conversions are always queued regardless of credential status — missing credentials are filled in from current settings at processing time. Failed queue jobs are automatically reset when credentials are updated. A persistent admin notice warns when uploads fail due to missing or invalid credentials.
 
 ## Naming Conventions
 
@@ -40,7 +40,7 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 2. `Migrator` — database migration runner
 3. `Gclid_Capturer` — registers `gclid` parameter on the core plugin's click-ID capture filter
 4. `Settings` — reads/writes `kntnt_ad_attr_gads_settings` option (API credentials + conversion defaults)
-5. `Settings_Page` — WordPress Settings API page under Settings > Google Ads Attribution (registers its own `admin_menu` and `admin_init` hooks in the constructor)
+5. `Settings_Page` — WordPress Settings API page under Settings > Google Ads Attribution (registers its own `admin_menu`, `admin_init`, and `admin_notices` hooks in the constructor)
 6. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
 
 **Lifecycle files (not autoloaded):**
@@ -58,6 +58,8 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 
 **Conversion reporting flow:** The `Conversion_Reporter` always registers regardless of credential status, so conversions are queued even during credential outages. `enqueue()` snapshots raw settings values (including `attribution_fraction` and `conversion_action_id`) into each payload. `process()` merges payload credentials with current settings as fallback — if the payload has empty credentials (queued during an outage), current settings fill the gaps. Derived values (resource name, attributed value) are computed at process time. If required credentials are still missing after merge, the job fails and will be retried. When settings are updated with valid credentials, `Plugin::on_settings_updated()` resets all failed Google Ads queue jobs to pending. The `Google_Ads_Client` handles OAuth2 token refresh and conversion upload via `wp_remote_post()`. Access tokens are cached in the `kntnt_ad_attr_gads_access_token` transient with a safety margin.
 
+**Credential error notification:** `Conversion_Reporter::process()` sets a transient (`kntnt_ad_attr_gads_credential_error`) when it detects missing credentials or a failed token refresh. The transient has no expiry — it persists until explicitly cleared. On successful upload the transient is deleted. `Settings_Page` hooks `admin_notices` to display a persistent error notice (visible on all admin pages, `manage_options` capability required) with a link to the settings page. `Plugin::on_settings_updated()` also clears the transient when settings are saved, so the notice disappears immediately after re-entering credentials. Only credential failures set the flag — other API errors (HTTP 4xx, partial failures) do not.
+
 The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookies. It uses the core plugin's infrastructure (Click_ID_Store, Queue, Queue_Processor).
 
 ## File Structure
@@ -68,6 +70,7 @@ kntnt-ad-attribution-gads/
 ├── autoloader.php                     ← PSR-4 autoloader for Kntnt\Ad_Attribution_Gads namespace
 ├── install.php                        ← Activation script (runs Migrator)
 ├── uninstall.php                      ← Uninstall script (removes option + transients)
+├── LICENSE                            ← GPL-2.0-or-later
 ├── README.md                          ← User and contributor documentation
 ├── CLAUDE.md                          ← This file
 ├── classes/
@@ -77,8 +80,8 @@ kntnt-ad-attribution-gads/
 │   ├── Migrator.php                   ← Database migration runner (version-based)
 │   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
-│   ├── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
-│   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
+│   ├── Settings_Page.php             ← Admin settings page + credential error admin notice
+│   ├── Conversion_Reporter.php       ← Enqueue/process callbacks + credential error transient flag
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 ├── js/
 │   └── settings-page.js              ← Test connection button AJAX handler
@@ -89,6 +92,7 @@ kntnt-ad-attribution-gads/
 ├── patchwork.json                     ← Patchwork redefinable internals
 └── tests/
     ├── bootstrap.php                  ← Patchwork init + final-stripping
+    ├── Pest.php                       ← Pest configuration
     ├── Helpers/
     │   ├── WpStubs.php                ← WordPress constants and helper stubs
     │   └── TestFactory.php            ← Mock $wpdb factory
@@ -99,12 +103,12 @@ kntnt-ad-attribution-gads/
         ├── UpdaterTest.php            ← GitHub update checker tests
         ├── GclidCapturerTest.php      ← Gclid capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
-        ├── SettingsPageTest.php       ← Settings page sanitization tests
+        ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
         ├── GoogleAdsClientTest.php    ← API client token/upload tests
-        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process tests
+        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
 ```
 
-**Directories that will be created in future versions:** `migrations/`, `css/`, `languages/`, `docs/`
+**Directories that will be created when needed:** `migrations/`, `languages/`
 
 ## Tests
 
@@ -156,15 +160,11 @@ ddev here vendor/bin/pest --filter Dependencies
 
 ## Remaining Work
 
-The core flow (gclid capture → attribution → queue → Google Ads upload) is complete with resilient queuing and a test connection button as of v0.4.0. The following items remain before production use:
+The core flow (gclid capture → attribution → queue → Google Ads upload) is complete with resilient queuing, a test connection button, and credential error admin notices. The following items remain before production use:
 
-1. **Smoke test mot riktigt Google Ads API** — Alla tester är enhetstester med mockade HTTP-anrop. Pluginet har aldrig kommunicerat med det riktiga API:et. En manuell verifiering med faktiska credentials behövs för att bekräfta att payload-format, headers och autentisering accepteras av Google. Testa anslutning-knappen kan användas för att verifiera OAuth2-credentials.
+1. **Smoke test against real Google Ads API** — All tests are unit tests with mocked HTTP calls. The plugin has never communicated with the real API. A manual verification with actual credentials is needed to confirm that payload format, headers, and authentication are accepted by Google. The Test Connection button can verify OAuth2 credentials.
 
-2. **Admin-notis vid ogiltiga credentials** — Om refresh token blir ogiltig (användaren återkallar åtkomst, token löper ut) loggas felet via `error_log()`, men inget syns i admin. Konverteringar köas och misslyckas tyst (men återställs automatiskt när credentials uppdateras). Överväg en admin notice som varnar när uploads har misslyckats.
-
-3. **Översättningsfiler** — Alla strängar är förberedda med `__()` / `esc_html__()`, men inga `.pot`/`.po`/`.mo`-filer finns genererade ännu. Kör `wp i18n make-pot` för att skapa `.pot`-filen.
-
-4. **Dokumentation av OAuth2-setup i README** — Användaren behöver skaffa developer token, OAuth2 client ID/secret och refresh token manuellt (t.ex. via Google OAuth Playground). README beskriver inte den processen steg för steg.
+2. **Translation files** — All strings are prepared with `__()` / `esc_html__()`, but no `.pot`/`.po`/`.mo` files have been generated yet. Run `wp i18n make-pot` to create the `.pot` file.
 
 ## Known Gotchas
 

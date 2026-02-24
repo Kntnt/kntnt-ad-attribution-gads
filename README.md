@@ -24,7 +24,7 @@ The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookie
 
 ### Current Status
 
-Version 0.4.0 adds resilient queuing and a test connection button. Click-ID capture stores `gclid` parameters automatically when visitors arrive via Google Ads tracking URLs. The settings page (Settings > Google Ads Attribution) provides fields for all required API credentials, conversion defaults, and a **Test Connection** button that verifies credentials by performing a live OAuth2 token refresh. Conversions are always queued regardless of credential status — if credentials are missing or invalid at queue time, they are filled in from current settings when the job is processed. Failed jobs are automatically reset when settings are updated with valid credentials.
+Click-ID capture stores `gclid` parameters automatically when visitors arrive via Google Ads tracking URLs. The settings page (Settings > Google Ads Attribution) provides fields for all required API credentials, conversion defaults, and a **Test Connection** button that verifies credentials by performing a live OAuth2 token refresh. Conversions are always queued regardless of credential status — if credentials are missing or invalid at queue time, they are filled in from current settings when the job is processed. Failed jobs are automatically reset when settings are updated with valid credentials. A persistent admin notice warns when uploads fail due to missing or invalid credentials.
 
 ### Settings Page
 
@@ -207,7 +207,7 @@ Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHu
 
 | Event | What happens |
 |-------|-------------|
-| Activation | Runs `Migrator` (no migrations yet in v0.3.0) |
+| Activation | Runs `Migrator` (no migrations yet) |
 | Deactivation | Clears transients with prefix `kntnt_ad_attr_gads_`. Preserves options. |
 | Uninstallation | Deletes `kntnt_ad_attr_gads_version` option, `kntnt_ad_attr_gads_settings` option, and all transients. |
 
@@ -221,6 +221,7 @@ kntnt-ad-attribution-gads/
 ├── autoloader.php                     ← PSR-4 autoloader for Kntnt\Ad_Attribution_Gads namespace
 ├── install.php                        ← Activation script (runs Migrator)
 ├── uninstall.php                      ← Uninstall script (removes option + transients)
+├── LICENSE                            ← GPL-2.0-or-later
 ├── README.md                          ← This file
 ├── CLAUDE.md                          ← AI-focused codebase guidance
 ├── classes/
@@ -237,6 +238,7 @@ kntnt-ad-attribution-gads/
 │   └── settings-page.js              ← Test connection button AJAX handler
 └── tests/
     ├── bootstrap.php                  ← Patchwork init + final-stripping
+    ├── Pest.php                       ← Pest configuration
     ├── Helpers/
     │   ├── WpStubs.php                ← WordPress constants and helper stubs
     │   └── TestFactory.php            ← Mock $wpdb factory

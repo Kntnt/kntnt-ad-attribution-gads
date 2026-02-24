@@ -279,6 +279,10 @@ final class Plugin {
 	 * @since 0.4.0
 	 */
 	public function on_settings_updated( mixed $old_value, mixed $new_value ): void {
+
+		// Clear credential error flag so the admin notice disappears.
+		delete_transient( Conversion_Reporter::CREDENTIAL_ERROR_TRANSIENT );
+
 		if ( $this->settings->is_configured() ) {
 			$this->conversion_reporter->reset_failed_jobs();
 		}

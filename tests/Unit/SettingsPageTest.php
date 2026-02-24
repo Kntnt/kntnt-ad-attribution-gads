@@ -125,6 +125,7 @@ describe('Settings_Page constructor', function () {
 
         expect($hooks)->toContain('admin_menu');
         expect($hooks)->toContain('admin_init');
+        expect($hooks)->toContain('admin_notices');
         expect($hooks)->toContain('admin_enqueue_scripts');
         expect($hooks)->toContain('wp_ajax_kntnt_ad_attr_gads_test_connection');
     });
@@ -325,6 +326,76 @@ describe('Settings_Page::enqueue_scripts()', function () {
 
         $page->enqueue_scripts('settings_page_kntnt-ad-attr-gads');
         expect($enqueued)->toBeTrue();
+    });
+
+});
+
+// ─── display_credential_notice() ───
+
+describe('Settings_Page::display_credential_notice()', function () {
+
+    it('displays error notice when credential error transient is set', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\expect('current_user_can')
+            ->once()
+            ->with('manage_options')
+            ->andReturn(true);
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_credential_error')
+            ->andReturn('missing');
+        Functions\when('admin_url')->justReturn('http://example.com/wp-admin/options-general.php?page=kntnt-ad-attr-gads');
+        Functions\when('esc_url')->returnArg();
+        Functions\when('wp_kses')->returnArg();
+
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings);
+
+        ob_start();
+        $page->display_credential_notice();
+        $output = ob_get_clean();
+
+        expect($output)->toContain('notice-error');
+        expect($output)->toContain('is-dismissible');
+        expect($output)->toContain('options-general.php?page=kntnt-ad-attr-gads');
+    });
+
+    it('does nothing when no credential error', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\expect('current_user_can')
+            ->once()
+            ->with('manage_options')
+            ->andReturn(true);
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_credential_error')
+            ->andReturn(false);
+
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings);
+
+        ob_start();
+        $page->display_credential_notice();
+        $output = ob_get_clean();
+
+        expect($output)->toBeEmpty();
+    });
+
+    it('does nothing for non-admin users', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\expect('current_user_can')
+            ->once()
+            ->with('manage_options')
+            ->andReturn(false);
+
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings);
+
+        ob_start();
+        $page->display_credential_notice();
+        $output = ob_get_clean();
+
+        expect($output)->toBeEmpty();
     });
 
 });

@@ -289,6 +289,7 @@ describe('Conversion_Reporter::process()', function () {
             ]);
 
         Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\when('delete_transient')->justReturn(true);
 
         $reporter = new Conversion_Reporter($settings);
         $result   = $reporter->process([
@@ -339,6 +340,7 @@ describe('Conversion_Reporter::process()', function () {
             ]);
 
         Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\when('delete_transient')->justReturn(true);
 
         $reporter = new Conversion_Reporter($settings);
         $result   = $reporter->process([
@@ -362,6 +364,8 @@ describe('Conversion_Reporter::process()', function () {
     it('returns false when no credentials available anywhere', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        Functions\when('set_transient')->justReturn(true);
 
         // error_log is a redefinable internal in patchwork.json.
         $logged = null;
@@ -424,6 +428,7 @@ describe('Conversion_Reporter::process()', function () {
             ]);
 
         Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\when('delete_transient')->justReturn(true);
 
         $reporter = new Conversion_Reporter($settings);
         $reporter->process([
@@ -500,6 +505,147 @@ describe('Conversion_Reporter::process()', function () {
         expect($logged)->toContain('HTTP 403');
 
         \Patchwork\restoreAll();
+    });
+
+    it('sets credential error transient when credentials are missing', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        Functions\expect('set_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_credential_error', 'missing', 0)
+            ->andReturn(true);
+
+        \Patchwork\redefine('error_log', function () {
+            return true;
+        });
+
+        $reporter = new Conversion_Reporter($settings);
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_abc',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '',
+            'conversion_action_id' => '',
+            'conversion_value'     => '',
+            'currency_code'        => '',
+            'developer_token'      => '',
+            'client_id'            => '',
+            'client_secret'        => '',
+            'refresh_token'        => '',
+            'login_customer_id'    => '',
+        ]);
+
+        expect($result)->toBeFalse();
+
+        \Patchwork\restoreAll();
+    });
+
+    it('sets credential error transient on token refresh failure', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        // Stub HTTP functions — token refresh fails (no cached token).
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn(false);
+
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        // Token refresh HTTP call fails.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 401],
+                'body'     => json_encode(['error' => 'invalid_grant']),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        Functions\expect('set_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_credential_error', 'token_refresh_failed', 0)
+            ->andReturn(true);
+
+        \Patchwork\redefine('error_log', function () {
+            return true;
+        });
+
+        $reporter = new Conversion_Reporter($settings);
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_abc',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
+        ]);
+
+        expect($result)->toBeFalse();
+
+        \Patchwork\restoreAll();
+    });
+
+    it('clears credential error transient on success', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['results' => [[]]]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        Functions\expect('delete_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_credential_error')
+            ->andReturn(true);
+
+        $reporter = new Conversion_Reporter($settings);
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_abc',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
+        ]);
+
+        expect($result)->toBeTrue();
     });
 
 });

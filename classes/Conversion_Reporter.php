@@ -28,6 +28,14 @@ use DateTimeImmutable;
 final class Conversion_Reporter {
 
 	/**
+	 * Transient key for flagging credential errors in admin.
+	 *
+	 * @var string
+	 * @since 0.5.0
+	 */
+	public const CREDENTIAL_ERROR_TRANSIENT = 'kntnt_ad_attr_gads_credential_error';
+
+	/**
 	 * Creates the reporter with a Settings dependency.
 	 *
 	 * @param Settings $settings Plugin settings instance.
@@ -137,6 +145,7 @@ final class Conversion_Reporter {
 
 		// Abort if required credentials are still missing after merge.
 		if ( ! $customer_id || ! $conversion_action_id || ! $developer_token || ! $client_id || ! $client_secret || ! $refresh_token ) {
+			set_transient( self::CREDENTIAL_ERROR_TRANSIENT, 'missing', 0 );
 			error_log( "Kntnt Ad Attribution Gads: Cannot process gclid {$payload['gclid']} — required credentials still missing." );
 			return false;
 		}
@@ -165,9 +174,18 @@ final class Conversion_Reporter {
 
 		// Log failures for debugging.
 		if ( ! $result['success'] ) {
+
+			// Flag credential problems so the admin notice can alert the user.
+			if ( str_contains( $result['error'], 'access token' ) ) {
+				set_transient( self::CREDENTIAL_ERROR_TRANSIENT, 'token_refresh_failed', 0 );
+			}
+
 			error_log( "Kntnt Ad Attribution Gads: Conversion upload failed for gclid {$payload['gclid']}: {$result['error']}" );
 			return false;
 		}
+
+		// Clear any previous credential error flag on success.
+		delete_transient( self::CREDENTIAL_ERROR_TRANSIENT );
 
 		return true;
 	}

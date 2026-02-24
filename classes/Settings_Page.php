@@ -110,9 +110,43 @@ final class Settings_Page {
 		if ( is_admin() ) {
 			add_action( 'admin_menu', [ $this, 'add_page' ] );
 			add_action( 'admin_init', [ $this, 'register_settings' ] );
+			add_action( 'admin_notices', [ $this, 'display_credential_notice' ] );
 			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
 			add_action( 'wp_ajax_' . self::AJAX_TEST_CONNECTION, [ $this, 'handle_test_connection' ] );
 		}
+	}
+
+	/**
+	 * Displays an admin notice when a credential error has been flagged.
+	 *
+	 * Shows a persistent error notice on all admin pages with a link
+	 * to the settings page. Only visible to users with `manage_options`.
+	 *
+	 * @return void
+	 * @since 0.5.0
+	 */
+	public function display_credential_notice(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		if ( ! get_transient( Conversion_Reporter::CREDENTIAL_ERROR_TRANSIENT ) ) {
+			return;
+		}
+
+		$settings_url = admin_url( 'options-general.php?page=' . self::PAGE_SLUG );
+
+		printf(
+			'<div class="notice notice-error is-dismissible"><p>%s</p></div>',
+			wp_kses(
+				sprintf(
+					/* translators: %s: URL to the Google Ads Attribution settings page */
+					__( 'Google Ads conversion uploads are failing due to invalid or missing credentials. Please check your <a href="%s">Google Ads Attribution settings</a>.', 'kntnt-ad-attr-gads' ),
+					esc_url( $settings_url ),
+				),
+				[ 'a' => [ 'href' => [] ] ],
+			),
+		);
 	}
 
 	/**
