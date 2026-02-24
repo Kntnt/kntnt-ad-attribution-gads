@@ -76,26 +76,26 @@ The plugin checks the PHP version on activation and aborts with a clear error me
 
 ### Configuration Guide
 
-After activation, go to **Settings > Google Ads Attribution** to enter your credentials. The steps below walk you through finding each value.
+After activation, go to **Settings > Google Ads Attribution** to enter your credentials. The sections below explain where to find each value.
 
-#### 1. Find your Customer ID
+#### Customer ID
 
-Your 10-digit Customer ID is shown in the top-right corner of the [Google Ads dashboard](https://ads.google.com/aw/overview) (formatted as `123-456-7890`). Enter it in the **Customer ID** field — dashes are stripped automatically.
+Your 10-digit Customer ID is shown in the top-right corner of the [Google Ads dashboard](https://ads.google.com/aw/overview) (formatted as `123-456-7890`). Dashes are stripped automatically.
 
-#### 2. Create a Conversion Action
+#### Conversion Action ID
 
 1. In Google Ads, go to [Goals > Conversions](https://ads.google.com/aw/conversions).
 2. Click **+ New conversion action** and choose **Import > Other data sources or CRMs > Track conversions from clicks**.
 3. Name the action (e.g. "Offline Lead") and save.
 4. Open the action and copy the numeric **Conversion Action ID** from the URL or the action details.
 
-#### 3. Get a Developer Token
+#### Developer Token
 
 1. In Google Ads, go to [Tools > API Center](https://ads.google.com/aw/apicenter).
 2. If you haven't applied for API access yet, follow the prompts to apply. A test account token (basic access) is sufficient for initial testing.
 3. Copy the **Developer Token** shown on the API Center page.
 
-#### 4. Set up OAuth2 Credentials
+#### OAuth2 Client ID and Client Secret
 
 1. Open the [Google Cloud Console](https://console.cloud.google.com/) and select (or create) a project.
 2. Go to [APIs & Services > Library](https://console.cloud.google.com/apis/library) and enable the **Google Ads API**.
@@ -103,24 +103,24 @@ Your 10-digit Customer ID is shown in the top-right corner of the [Google Ads da
 4. Choose **Web application** as the application type. Add `https://developers.google.com/oauthplayground` as an authorized redirect URI.
 5. Copy the **Client ID** and **Client Secret** (the secret is only shown once at creation time).
 
-#### 5. Generate a Refresh Token
+#### OAuth2 Refresh Token
 
 1. Open the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground/).
-2. Click the gear icon (⚙) in the top-right and check **Use your own OAuth credentials**. Enter your Client ID and Client Secret from step 4.
+2. Click the gear icon (⚙) in the top-right and check **Use your own OAuth credentials**. Enter your Client ID and Client Secret.
 3. In step 1 of the Playground, find **Google Ads API** and select the `https://www.googleapis.com/auth/adwords` scope. Click **Authorize APIs** and sign in with the Google account that has access to your Google Ads account.
 4. In step 2, click **Exchange authorization code for tokens**.
 5. Copy the **Refresh Token** from the response.
 
-#### 6. Set Conversion Defaults
+#### Conversion Defaults
 
 - **Default Conversion Value** — the monetary value assigned to each conversion (e.g. `100`). Set to `0` if you don't track conversion values.
 - **Currency Code** — the ISO 4217 currency (e.g. `SEK`, `USD`, `EUR`).
 
-#### 7. Test Connection
+#### Test Connection
 
 Click the **Test Connection** button on the settings page. It verifies your OAuth2 credentials by performing a live token refresh against Google. If it succeeds, your Client ID, Client Secret, and Refresh Token are correct.
 
-#### 8. Login Customer ID (MCC)
+#### Login Customer ID (MCC)
 
 Only needed if you access the Google Ads account through a **Manager Account (MCC)**. Enter the 10-digit MCC Customer ID. Leave blank if you log in to the Google Ads account directly.
 

@@ -323,59 +323,61 @@ final class Settings_Page {
 	 * @since 0.2.0
 	 */
 	private function add_credential_fields(): void {
+		$guide = 'https://github.com/Kntnt/kntnt-ad-attribution-gads#';
+
 		$fields = [
 			'customer_id'          => [
 				'label'       => __( 'Customer ID', 'kntnt-ad-attr-gads' ),
 				'type'        => 'text',
 				'description' => sprintf(
-					/* translators: %s: URL to Google Ads overview page */
-					__( '10-digit Google Ads Customer ID (dashes are removed automatically).<br><a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Find in Google Ads</a>', 'kntnt-ad-attr-gads' ),
-					'https://ads.google.com/aw/overview',
+					/* translators: %s: URL to the configuration guide section */
+					__( '10-digit Google Ads Customer ID (dashes are removed automatically).<br><a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Configuration guide</a>', 'kntnt-ad-attr-gads' ),
+					$guide . 'customer-id',
 				),
 			],
 			'conversion_action_id' => [
 				'label'       => __( 'Conversion Action ID', 'kntnt-ad-attr-gads' ),
 				'type'        => 'text',
 				'description' => sprintf(
-					/* translators: %s: URL to Google Ads conversions page */
-					__( 'Numeric ID of the conversion action.<br><a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Google Ads: Conversions</a>', 'kntnt-ad-attr-gads' ),
-					'https://ads.google.com/aw/conversions',
+					/* translators: %s: URL to the configuration guide section */
+					__( 'Numeric ID of the conversion action.<br><a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Configuration guide</a>', 'kntnt-ad-attr-gads' ),
+					$guide . 'conversion-action-id',
 				),
 			],
 			'developer_token'      => [
 				'label'       => __( 'Developer Token', 'kntnt-ad-attr-gads' ),
 				'type'        => 'text',
 				'description' => sprintf(
-					/* translators: %s: URL to Google Ads API Center */
-					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Google Ads: API Center</a>', 'kntnt-ad-attr-gads' ),
-					'https://ads.google.com/aw/apicenter',
+					/* translators: %s: URL to the configuration guide section */
+					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Configuration guide</a>', 'kntnt-ad-attr-gads' ),
+					$guide . 'developer-token',
 				),
 			],
 			'client_id'            => [
 				'label'       => __( 'OAuth2 Client ID', 'kntnt-ad-attr-gads' ),
 				'type'        => 'text',
 				'description' => sprintf(
-					/* translators: %s: URL to Google Cloud Console credentials page */
-					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Google Cloud Console</a>', 'kntnt-ad-attr-gads' ),
-					'https://console.cloud.google.com/apis/credentials',
+					/* translators: %s: URL to the configuration guide section */
+					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Configuration guide</a>', 'kntnt-ad-attr-gads' ),
+					$guide . 'oauth2-client-id-and-client-secret',
 				),
 			],
 			'client_secret'        => [
 				'label'       => __( 'OAuth2 Client Secret', 'kntnt-ad-attr-gads' ),
 				'type'        => 'password',
 				'description' => sprintf(
-					/* translators: %s: URL to Google Cloud Console credentials page */
-					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Google Cloud Console</a>', 'kntnt-ad-attr-gads' ),
-					'https://console.cloud.google.com/apis/credentials',
+					/* translators: %s: URL to the configuration guide section */
+					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Configuration guide</a>', 'kntnt-ad-attr-gads' ),
+					$guide . 'oauth2-client-id-and-client-secret',
 				),
 			],
 			'refresh_token'        => [
 				'label'       => __( 'OAuth2 Refresh Token', 'kntnt-ad-attr-gads' ),
 				'type'        => 'password',
 				'description' => sprintf(
-					/* translators: %s: URL to Google OAuth 2.0 Playground */
-					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">OAuth 2.0 Playground</a>', 'kntnt-ad-attr-gads' ),
-					'https://developers.google.com/oauthplayground/',
+					/* translators: %s: URL to the configuration guide section */
+					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Configuration guide</a>', 'kntnt-ad-attr-gads' ),
+					$guide . 'oauth2-refresh-token',
 				),
 			],
 			'login_customer_id'    => [
