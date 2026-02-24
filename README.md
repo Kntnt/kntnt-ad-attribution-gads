@@ -236,6 +236,8 @@ kntnt-ad-attribution-gads/
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 ├── js/
 │   └── settings-page.js              ← Test connection button AJAX handler
+├── languages/
+│   └── kntnt-ad-attr-gads.pot        ← Translation template
 └── tests/
     ├── bootstrap.php                  ← Patchwork init + final-stripping
     ├── Pest.php                       ← Pest configuration
