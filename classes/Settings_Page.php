@@ -155,7 +155,14 @@ final class Settings_Page {
 			__( 'API Credentials', 'kntnt-ad-attr-gads' ),
 			fn() => printf(
 				'<p>%s</p>',
-				esc_html__( 'Enter your Google Ads API credentials. All fields except Login Customer ID are required.', 'kntnt-ad-attr-gads' ),
+				wp_kses(
+					sprintf(
+						/* translators: %s: URL to the configuration guide on GitHub */
+						__( 'Enter your Google Ads API credentials. All fields except Login Customer ID are required. See the <a href="%s" target="_blank" rel="noopener noreferrer">configuration guide</a> for step-by-step instructions.', 'kntnt-ad-attr-gads' ),
+						'https://github.com/Kntnt/kntnt-ad-attribution-gads#configuration-guide',
+					),
+					[ 'a' => [ 'href' => [], 'target' => [], 'rel' => [] ] ],
+				),
 			),
 			self::PAGE_SLUG,
 		);
@@ -218,6 +225,10 @@ final class Settings_Page {
 	 */
 	public function render_page(): void {
 		?>
+		<style>
+			.kntnt-ad-attr-gads-hint { font-size: 12px; color: #999; }
+			.kntnt-ad-attr-gads-hint:hover { color: #646970; }
+		</style>
 		<div class="wrap">
 			<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
 			<form method="post" action="options.php">
@@ -316,28 +327,56 @@ final class Settings_Page {
 			'customer_id'          => [
 				'label'       => __( 'Customer ID', 'kntnt-ad-attr-gads' ),
 				'type'        => 'text',
-				'description' => __( '10-digit Google Ads Customer ID (dashes are removed automatically).', 'kntnt-ad-attr-gads' ),
+				'description' => sprintf(
+					/* translators: %s: URL to Google Ads overview page */
+					__( '10-digit Google Ads Customer ID (dashes are removed automatically).<br><a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Find in Google Ads</a>', 'kntnt-ad-attr-gads' ),
+					'https://ads.google.com/aw/overview',
+				),
 			],
 			'conversion_action_id' => [
 				'label'       => __( 'Conversion Action ID', 'kntnt-ad-attr-gads' ),
 				'type'        => 'text',
-				'description' => __( 'Numeric ID of the conversion action in Google Ads.', 'kntnt-ad-attr-gads' ),
+				'description' => sprintf(
+					/* translators: %s: URL to Google Ads conversions page */
+					__( 'Numeric ID of the conversion action.<br><a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Google Ads: Conversions</a>', 'kntnt-ad-attr-gads' ),
+					'https://ads.google.com/aw/conversions',
+				),
 			],
 			'developer_token'      => [
-				'label' => __( 'Developer Token', 'kntnt-ad-attr-gads' ),
-				'type'  => 'text',
+				'label'       => __( 'Developer Token', 'kntnt-ad-attr-gads' ),
+				'type'        => 'text',
+				'description' => sprintf(
+					/* translators: %s: URL to Google Ads API Center */
+					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Google Ads: API Center</a>', 'kntnt-ad-attr-gads' ),
+					'https://ads.google.com/aw/apicenter',
+				),
 			],
 			'client_id'            => [
-				'label' => __( 'OAuth2 Client ID', 'kntnt-ad-attr-gads' ),
-				'type'  => 'text',
+				'label'       => __( 'OAuth2 Client ID', 'kntnt-ad-attr-gads' ),
+				'type'        => 'text',
+				'description' => sprintf(
+					/* translators: %s: URL to Google Cloud Console credentials page */
+					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Google Cloud Console</a>', 'kntnt-ad-attr-gads' ),
+					'https://console.cloud.google.com/apis/credentials',
+				),
 			],
 			'client_secret'        => [
-				'label' => __( 'OAuth2 Client Secret', 'kntnt-ad-attr-gads' ),
-				'type'  => 'password',
+				'label'       => __( 'OAuth2 Client Secret', 'kntnt-ad-attr-gads' ),
+				'type'        => 'password',
+				'description' => sprintf(
+					/* translators: %s: URL to Google Cloud Console credentials page */
+					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Google Cloud Console</a>', 'kntnt-ad-attr-gads' ),
+					'https://console.cloud.google.com/apis/credentials',
+				),
 			],
 			'refresh_token'        => [
-				'label' => __( 'OAuth2 Refresh Token', 'kntnt-ad-attr-gads' ),
-				'type'  => 'password',
+				'label'       => __( 'OAuth2 Refresh Token', 'kntnt-ad-attr-gads' ),
+				'type'        => 'password',
+				'description' => sprintf(
+					/* translators: %s: URL to Google OAuth 2.0 Playground */
+					__( '<a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">OAuth 2.0 Playground</a>', 'kntnt-ad-attr-gads' ),
+					'https://developers.google.com/oauthplayground/',
+				),
 			],
 			'login_customer_id'    => [
 				'label'       => __( 'Login Customer ID (MCC)', 'kntnt-ad-attr-gads' ),
@@ -433,7 +472,13 @@ final class Settings_Page {
 			esc_attr( (string) $value ),
 		);
 		if ( $description !== '' ) {
-			printf( '<p class="description">%s</p>', esc_html( $description ) );
+			printf(
+				'<p class="description">%s</p>',
+				wp_kses( $description, [
+					'a'  => [ 'href' => [], 'target' => [], 'rel' => [], 'class' => [] ],
+					'br' => [],
+				] ),
+			);
 		}
 	}
 
