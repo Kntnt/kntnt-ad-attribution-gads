@@ -53,17 +53,6 @@ require_once __DIR__ . '/autoloader.php';
 $dependencies = new Dependencies( __FILE__ );
 register_activation_hook( __FILE__, fn() => $dependencies->guard_activation() );
 
-// Abort with an admin notice if the core plugin is not loaded.
-if ( ! class_exists( \Kntnt\Ad_Attribution\Plugin::class ) ) {
-	add_action( 'admin_notices', function (): void {
-		printf(
-			'<div class="notice notice-error"><p>%s</p></div>',
-			esc_html__( 'Kntnt Ad Attribution for Google Ads requires Kntnt Ad Attribution to be installed and activated.', 'kntnt-ad-attr-gads' ),
-		);
-	} );
-	return;
-}
-
 // Run install script on plugin activation.
 register_activation_hook( __FILE__, function (): void {
 	require_once __DIR__ . '/install.php';
@@ -75,5 +64,22 @@ register_deactivation_hook( __FILE__, [ Plugin::class, 'deactivate' ] );
 // Set the plugin file path for the Plugin class to use.
 Plugin::set_plugin_file( __FILE__ );
 
-// Initialize the plugin.
-Plugin::get_instance();
+// Defer initialization until all plugins are loaded, ensuring the core
+// plugin's classes are available regardless of file-system loading order.
+add_action( 'plugins_loaded', static function (): void {
+
+	// Abort with an admin notice if the core plugin is not loaded.
+	if ( ! class_exists( \Kntnt\Ad_Attribution\Plugin::class ) ) {
+		add_action( 'admin_notices', static function (): void {
+			printf(
+				'<div class="notice notice-error"><p>%s</p></div>',
+				esc_html__( 'Kntnt Ad Attribution for Google Ads requires Kntnt Ad Attribution to be installed and activated.', 'kntnt-ad-attr-gads' ),
+			);
+		} );
+		return;
+	}
+
+	// Initialize the plugin.
+	Plugin::get_instance();
+
+}, 0 );

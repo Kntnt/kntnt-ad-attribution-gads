@@ -152,6 +152,20 @@ ddev here vendor/bin/pest --filter Dependencies
 - Errors are silent toward visitors, logged via `error_log()`.
 - JavaScript: ES6+, IIFE with `'use strict'`, `const` default, arrow functions, `fetch` over jQuery.
 
+## Remaining Work
+
+The core flow (gclid capture → attribution → queue → Google Ads upload) is complete as of v0.3.0. The following items remain before production use:
+
+1. **Smoke test mot riktigt Google Ads API** — Alla tester är enhetstester med mockade HTTP-anrop. Pluginet har aldrig kommunicerat med det riktiga API:et. En manuell verifiering med faktiska credentials behövs för att bekräfta att payload-format, headers och autentisering accepteras av Google.
+
+2. **Admin-notis vid ogiltiga credentials** — Om refresh token blir ogiltig (användaren återkallar åtkomst, token löper ut) loggas felet via `error_log()`, men inget syns i admin. Konverteringar köas och misslyckas tyst. Överväg en admin notice som varnar när uploads har misslyckats.
+
+3. **"Testa anslutning"-knapp på inställningssidan** — Inställningssidan sparar credentials men ger ingen feedback om de fungerar. En AJAX-knapp som gör ett test-anrop (t.ex. token refresh) och visar resultatet skulle minska felsökningstid.
+
+4. **Översättningsfiler** — Alla strängar är förberedda med `__()` / `esc_html__()`, men inga `.pot`/`.po`/`.mo`-filer finns genererade ännu. Kör `wp i18n make-pot` för att skapa `.pot`-filen.
+
+5. **Dokumentation av OAuth2-setup i README** — Användaren behöver skaffa developer token, OAuth2 client ID/secret och refresh token manuellt (t.ex. via Google OAuth Playground). README beskriver inte den processen steg för steg.
+
 ## Known Gotchas
 
 - `Plugin::get_plugin_data()` must pass `$translate = false` to WP's `get_plugin_data()` to avoid triggering `_load_textdomain_just_in_time` warnings when called before `init` (e.g. from Migrator on `plugins_loaded`).
