@@ -24,13 +24,13 @@ The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookie
 
 ### Current Status
 
-Version 0.2.0 adds gclid capture and an admin settings page. Click-ID capture is fully functional: when a visitor arrives via a Google Ads tracking URL with a `gclid` parameter, the value is stored automatically by the core plugin. The settings page (Settings > Google Ads Attribution) provides fields for all required Google Ads API credentials and conversion defaults. Conversion reporting via the Google Ads API is planned for v0.3.0.
+Version 0.3.0 completes the conversion reporting pipeline. Click-ID capture stores `gclid` parameters automatically when visitors arrive via Google Ads tracking URLs. The settings page (Settings > Google Ads Attribution) provides fields for all required API credentials and conversion defaults. When the core plugin attributes a conversion to a click with a `gclid`, the conversion is queued and asynchronously uploaded to Google Ads via the Offline Conversion Upload API.
 
 ### Settings Page
 
 Navigate to **Settings > Google Ads Attribution** to configure the plugin. The page has two sections:
 
-**API Credentials** — required for conversion reporting (planned for v0.3.0):
+**API Credentials** — required for conversion reporting:
 - Customer ID (10 digits, dashes are stripped automatically)
 - Conversion Action ID
 - Developer Token
@@ -150,12 +150,13 @@ Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHu
 3. `Gclid_Capturer` — registers `gclid` parameter on the click-ID capture filter
 4. `Settings` — reads/writes plugin settings option
 5. `Settings_Page` — admin settings page under Settings > Google Ads Attribution
+6. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
 
 **Lifecycle:**
 
 | Event | What happens |
 |-------|-------------|
-| Activation | Runs `Migrator` (no migrations yet in v0.2.0) |
+| Activation | Runs `Migrator` (no migrations yet in v0.3.0) |
 | Deactivation | Clears transients with prefix `kntnt_ad_attr_gads_`. Preserves options. |
 | Uninstallation | Deletes `kntnt_ad_attr_gads_version` option, `kntnt_ad_attr_gads_settings` option, and all transients. |
 
@@ -178,7 +179,9 @@ kntnt-ad-attribution-gads/
 │   ├── Migrator.php                   ← Database migration runner (version-based)
 │   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
-│   └── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
+│   ├── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
+│   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
+│   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 └── tests/
     ├── bootstrap.php                  ← Patchwork init + final-stripping
     ├── Helpers/
@@ -191,7 +194,9 @@ kntnt-ad-attribution-gads/
         ├── UpdaterTest.php            ← GitHub update checker tests
         ├── GclidCapturerTest.php      ← Gclid capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
-        └── SettingsPageTest.php       ← Settings page sanitization tests
+        ├── SettingsPageTest.php       ← Settings page sanitization tests
+        ├── GoogleAdsClientTest.php    ← API client token/upload tests
+        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process tests
 ```
 
 ### Naming Conventions

@@ -74,6 +74,14 @@ final class Plugin {
 	public readonly Settings_Page $settings_page;
 
 	/**
+	 * Conversion reporter component instance.
+	 *
+	 * @var Conversion_Reporter
+	 * @since 0.3.0
+	 */
+	public readonly Conversion_Reporter $conversion_reporter;
+
+	/**
 	 * Cached plugin metadata from header.
 	 *
 	 * @var array|null
@@ -107,11 +115,12 @@ final class Plugin {
 	private function __construct() {
 
 		// Initialize plugin components.
-		$this->updater        = new Updater();
-		$this->migrator       = new Migrator();
-		$this->gclid_capturer = new Gclid_Capturer();
-		$this->settings       = new Settings();
-		$this->settings_page  = new Settings_Page( $this->settings );
+		$this->updater              = new Updater();
+		$this->migrator             = new Migrator();
+		$this->gclid_capturer       = new Gclid_Capturer();
+		$this->settings             = new Settings();
+		$this->settings_page        = new Settings_Page( $this->settings );
+		$this->conversion_reporter  = new Conversion_Reporter( $this->settings );
 
 		// Register WordPress hooks.
 		$this->register_hooks();
@@ -249,6 +258,9 @@ final class Plugin {
 
 		// Register gclid capture for Google Ads click tracking.
 		add_filter( 'kntnt_ad_attr_click_id_capturers', [ $this->gclid_capturer, 'register' ] );
+
+		// Register conversion reporter for Google Ads offline upload.
+		add_filter( 'kntnt_ad_attr_conversion_reporters', [ $this->conversion_reporter, 'register' ] );
 	}
 
 	/**

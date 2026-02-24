@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WordPress add-on plugin for Kntnt Ad Attribution that adds Google Ads offline conversion tracking. Captures `gclid` parameters from ad clicks and reports conversions back to Google Ads via the Offline Conversion Upload API.
 
-**Current status (v0.2.0):** Gclid capture and settings UI are implemented. The plugin captures `gclid` parameters via the core plugin's click-ID system and provides a settings page (Settings > Google Ads Attribution) for API credentials and conversion defaults. Conversion reporting via the Google Ads API is planned for v0.3.0.
+**Current status (v0.3.0):** Gclid capture, settings UI, and conversion reporting are implemented. The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) for API credentials and conversion defaults, and reports conversions back to Google Ads via the Offline Conversion Upload API.
 
 ## Naming Conventions
 
@@ -41,6 +41,7 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 3. `Gclid_Capturer` — registers `gclid` parameter on the core plugin's click-ID capture filter
 4. `Settings` — reads/writes `kntnt_ad_attr_gads_settings` option (API credentials + conversion defaults)
 5. `Settings_Page` — WordPress Settings API page under Settings > Google Ads Attribution (registers its own `admin_menu` and `admin_init` hooks in the constructor)
+6. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
 
 **Lifecycle files (not autoloaded):**
 
@@ -54,6 +55,8 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 
 - `kntnt_ad_attr_click_id_capturers` — registers `'google_ads' => 'gclid'` to capture click IDs
 - `kntnt_ad_attr_conversion_reporters` — registers enqueue/process callbacks for Google Ads API
+
+**Conversion reporting flow:** When the core plugin attributes a conversion to a click that has a `gclid`, the `Conversion_Reporter::enqueue()` callback snapshots all API credentials into a self-contained payload and returns it to the core's queue. Later, `Conversion_Reporter::process()` creates a `Google_Ads_Client` from the payload credentials and uploads the conversion to the Google Ads Offline Conversion Upload API via `wp_remote_post()`. OAuth2 access tokens are cached in the `kntnt_ad_attr_gads_access_token` transient with a safety margin.
 
 The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookies. It uses the core plugin's infrastructure (Click_ID_Store, Queue, Queue_Processor).
 
@@ -74,7 +77,9 @@ kntnt-ad-attribution-gads/
 │   ├── Migrator.php                   ← Database migration runner (version-based)
 │   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
-│   └── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
+│   ├── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
+│   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
+│   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 ├── build-release-zip.sh               ← Release zip builder (local or from git tag)
 ├── run-tests.sh                       ← Test runner with DDEV auto-detection
 ├── composer.json                      ← Dependencies (Pest, Brain Monkey, Mockery)
@@ -92,7 +97,9 @@ kntnt-ad-attribution-gads/
         ├── UpdaterTest.php            ← GitHub update checker tests
         ├── GclidCapturerTest.php      ← Gclid capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
-        └── SettingsPageTest.php       ← Settings page sanitization tests
+        ├── SettingsPageTest.php       ← Settings page sanitization tests
+        ├── GoogleAdsClientTest.php    ← API client token/upload tests
+        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process tests
 ```
 
 **Directories that will be created in future versions:** `migrations/`, `js/`, `css/`, `languages/`, `docs/`

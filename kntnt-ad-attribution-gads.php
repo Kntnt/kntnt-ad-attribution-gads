@@ -3,7 +3,7 @@
  * Plugin Name:       Kntnt Ad Attribution for Google Ads
  * Plugin URI:        https://github.com/Kntnt/kntnt-ad-attribution-gads
  * Description:       Extends Kntnt Ad Attribution with Google Ads offline conversion tracking.
- * Version:           0.2.0
+ * Version:           0.3.0
  * Author:            Kntnt Sweden AB
  * Author URI:        https://www.kntnt.com/
  * License:           GPL-2.0-or-later
