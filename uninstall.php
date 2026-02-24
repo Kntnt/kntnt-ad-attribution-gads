@@ -23,6 +23,9 @@ global $wpdb;
 // Delete the stored schema version.
 delete_option( 'kntnt_ad_attr_gads_version' );
 
+// Delete plugin settings.
+delete_option( 'kntnt_ad_attr_gads_settings' );
+
 // Remove plugin transients.
 $wpdb->query(
 	$wpdb->prepare(

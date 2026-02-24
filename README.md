@@ -24,12 +24,27 @@ The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookie
 
 ### Current Status
 
-Version 0.1.0 is the plugin skeleton — infrastructure only. The plugin can be installed, activated, deactivated, and uninstalled, but does not yet capture click IDs or report conversions. The Google Ads integration is planned for subsequent versions.
+Version 0.2.0 adds gclid capture and an admin settings page. Click-ID capture is fully functional: when a visitor arrives via a Google Ads tracking URL with a `gclid` parameter, the value is stored automatically by the core plugin. The settings page (Settings > Google Ads Attribution) provides fields for all required Google Ads API credentials and conversion defaults. Conversion reporting via the Google Ads API is planned for v0.3.0.
+
+### Settings Page
+
+Navigate to **Settings > Google Ads Attribution** to configure the plugin. The page has two sections:
+
+**API Credentials** — required for conversion reporting (planned for v0.3.0):
+- Customer ID (10 digits, dashes are stripped automatically)
+- Conversion Action ID
+- Developer Token
+- OAuth2 Client ID, Client Secret, and Refresh Token
+- Login Customer ID (MCC) — optional, only needed for manager accounts
+
+**Conversion Defaults:**
+- Default Conversion Value (numeric, >= 0)
+- Currency Code (ISO 4217 select dropdown, default: SEK)
 
 ### Limitations
 
 - **Requires the core plugin.** This is an add-on — [Kntnt Ad Attribution](https://github.com/Kntnt/kntnt-ad-attribution) must be installed and active.
-- **Google Ads API credentials required.** Conversion reporting requires a Google Ads Customer ID, Conversion Action ID, OAuth2 credentials, and a Developer Token. Configuration UI is planned for a future version.
+- **Google Ads API credentials required.** Conversion reporting requires a Google Ads Customer ID, Conversion Action ID, OAuth2 credentials, and a Developer Token. Configure these under Settings > Google Ads Attribution.
 - **Attribution window limited by cookie lifetime.** The core plugin's cookie lifetime (default: 90 days) determines the maximum attribution window, even though Google Ads allows up to 90 days for offline conversion uploads.
 
 ---
@@ -132,14 +147,17 @@ Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHu
 
 1. `Updater` — GitHub-based update checker
 2. `Migrator` — database migration runner
+3. `Gclid_Capturer` — registers `gclid` parameter on the click-ID capture filter
+4. `Settings` — reads/writes plugin settings option
+5. `Settings_Page` — admin settings page under Settings > Google Ads Attribution
 
 **Lifecycle:**
 
 | Event | What happens |
 |-------|-------------|
-| Activation | Runs `Migrator` (no migrations yet in v0.1.0) |
+| Activation | Runs `Migrator` (no migrations yet in v0.2.0) |
 | Deactivation | Clears transients with prefix `kntnt_ad_attr_gads_`. Preserves options. |
-| Uninstallation | Deletes `kntnt_ad_attr_gads_version` option and all transients. |
+| Uninstallation | Deletes `kntnt_ad_attr_gads_version` option, `kntnt_ad_attr_gads_settings` option, and all transients. |
 
 **Migrator pattern:** Version-based migrations in `migrations/X.Y.Z.php`. Each file returns `function(\wpdb $wpdb): void`. Migrator compares `kntnt_ad_attr_gads_version` option with the plugin header version on `plugins_loaded` and runs pending files in order. The `migrations/` directory does not exist yet — it will be created when the first migration is needed.
 
@@ -157,7 +175,10 @@ kntnt-ad-attribution-gads/
 │   ├── Plugin.php                     ← Singleton, component wiring, hooks, path helpers
 │   ├── Dependencies.php               ← Core plugin dependency enforcement
 │   ├── Updater.php                    ← GitHub release update checker
-│   └── Migrator.php                   ← Database migration runner (version-based)
+│   ├── Migrator.php                   ← Database migration runner (version-based)
+│   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
+│   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
+│   └── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
 └── tests/
     ├── bootstrap.php                  ← Patchwork init + final-stripping
     ├── Helpers/
@@ -167,7 +188,10 @@ kntnt-ad-attribution-gads/
         ├── DependenciesTest.php       ← Dependency enforcement tests
         ├── MigratorTest.php           ← Migration runner tests
         ├── PluginTest.php             ← Plugin metadata and lifecycle tests
-        └── UpdaterTest.php            ← GitHub update checker tests
+        ├── UpdaterTest.php            ← GitHub update checker tests
+        ├── GclidCapturerTest.php      ← Gclid capturer registration tests
+        ├── SettingsTest.php           ← Settings read/write/is_configured tests
+        └── SettingsPageTest.php       ← Settings page sanitization tests
 ```
 
 ### Naming Conventions
@@ -179,6 +203,7 @@ All machine-readable names use `kntnt-ad-attr-gads` (hyphens) / `kntnt_ad_attr_g
 | Plugin slug | `kntnt-ad-attribution-gads` |
 | Text domain | `kntnt-ad-attr-gads` |
 | DB version option | `kntnt_ad_attr_gads_version` |
+| Settings option | `kntnt_ad_attr_gads_settings` |
 | Options prefix | `kntnt_ad_attr_gads_` |
 | Namespace | `Kntnt\Ad_Attribution_Gads` |
 | GitHub repo | `Kntnt/kntnt-ad-attribution-gads` |

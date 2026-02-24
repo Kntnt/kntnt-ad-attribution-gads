@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WordPress add-on plugin for Kntnt Ad Attribution that adds Google Ads offline conversion tracking. Captures `gclid` parameters from ad clicks and reports conversions back to Google Ads via the Offline Conversion Upload API.
 
-**Current status (v0.1.0):** Plugin skeleton with infrastructure only. The Google Ads integration (click-ID capture, conversion reporting, settings UI) is planned for subsequent versions.
+**Current status (v0.2.0):** Gclid capture and settings UI are implemented. The plugin captures `gclid` parameters via the core plugin's click-ID system and provides a settings page (Settings > Google Ads Attribution) for API credentials and conversion defaults. Conversion reporting via the Google Ads API is planned for v0.3.0.
 
 ## Naming Conventions
 
@@ -17,6 +17,7 @@ All machine-readable names use `kntnt-ad-attr-gads` (hyphens) / `kntnt_ad_attr_g
 | Plugin slug | `kntnt-ad-attribution-gads` |
 | Text domain | `kntnt-ad-attr-gads` |
 | DB version option | `kntnt_ad_attr_gads_version` |
+| Settings option | `kntnt_ad_attr_gads_settings` |
 | Options prefix | `kntnt_ad_attr_gads_` |
 | Namespace | `Kntnt\Ad_Attribution_Gads` |
 | GitHub repo | `Kntnt/kntnt-ad-attribution-gads` |
@@ -37,11 +38,14 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 
 1. `Updater` — GitHub-based update checker
 2. `Migrator` — database migration runner
+3. `Gclid_Capturer` — registers `gclid` parameter on the core plugin's click-ID capture filter
+4. `Settings` — reads/writes `kntnt_ad_attr_gads_settings` option (API credentials + conversion defaults)
+5. `Settings_Page` — WordPress Settings API page under Settings > Google Ads Attribution (registers its own `admin_menu` and `admin_init` hooks in the constructor)
 
 **Lifecycle files (not autoloaded):**
 
 - `install.php` — activation: runs Migrator
-- `uninstall.php` — complete data removal. Runs outside the plugin's namespace (no autoloader available), uses raw `$wpdb`. Deletes version option and transients.
+- `uninstall.php` — complete data removal. Runs outside the plugin's namespace (no autoloader available), uses raw `$wpdb`. Deletes version option, settings option, and transients.
 - `Plugin::deactivate()` — clears transients. Preserves data.
 
 **Migrator pattern:** Version-based migrations in `migrations/X.Y.Z.php`. Each file returns `function(\wpdb $wpdb): void`. Migrator compares `kntnt_ad_attr_gads_version` option with the plugin header version on `plugins_loaded` and runs pending files in order. The `migrations/` directory does not exist yet — it will be created when the first migration is needed.
@@ -67,7 +71,10 @@ kntnt-ad-attribution-gads/
 │   ├── Plugin.php                     ← Singleton, component wiring, hooks, path helpers
 │   ├── Dependencies.php               ← Core plugin dependency enforcement
 │   ├── Updater.php                    ← GitHub release update checker
-│   └── Migrator.php                   ← Database migration runner (version-based)
+│   ├── Migrator.php                   ← Database migration runner (version-based)
+│   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
+│   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
+│   └── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
 ├── build-release-zip.sh               ← Release zip builder (local or from git tag)
 ├── run-tests.sh                       ← Test runner with DDEV auto-detection
 ├── composer.json                      ← Dependencies (Pest, Brain Monkey, Mockery)
@@ -82,7 +89,10 @@ kntnt-ad-attribution-gads/
         ├── DependenciesTest.php       ← Dependency enforcement tests
         ├── MigratorTest.php           ← Migration runner tests
         ├── PluginTest.php             ← Plugin metadata and lifecycle tests
-        └── UpdaterTest.php            ← GitHub update checker tests
+        ├── UpdaterTest.php            ← GitHub update checker tests
+        ├── GclidCapturerTest.php      ← Gclid capturer registration tests
+        ├── SettingsTest.php           ← Settings read/write/is_configured tests
+        └── SettingsPageTest.php       ← Settings page sanitization tests
 ```
 
 **Directories that will be created in future versions:** `migrations/`, `js/`, `css/`, `languages/`, `docs/`

@@ -50,6 +50,30 @@ final class Plugin {
 	public readonly Migrator $migrator;
 
 	/**
+	 * Gclid capturer component instance.
+	 *
+	 * @var Gclid_Capturer
+	 * @since 0.2.0
+	 */
+	public readonly Gclid_Capturer $gclid_capturer;
+
+	/**
+	 * Settings component instance.
+	 *
+	 * @var Settings
+	 * @since 0.2.0
+	 */
+	public readonly Settings $settings;
+
+	/**
+	 * Settings page component instance.
+	 *
+	 * @var Settings_Page
+	 * @since 0.2.0
+	 */
+	public readonly Settings_Page $settings_page;
+
+	/**
 	 * Cached plugin metadata from header.
 	 *
 	 * @var array|null
@@ -83,8 +107,11 @@ final class Plugin {
 	private function __construct() {
 
 		// Initialize plugin components.
-		$this->updater  = new Updater();
-		$this->migrator = new Migrator();
+		$this->updater        = new Updater();
+		$this->migrator       = new Migrator();
+		$this->gclid_capturer = new Gclid_Capturer();
+		$this->settings       = new Settings();
+		$this->settings_page  = new Settings_Page( $this->settings );
 
 		// Register WordPress hooks.
 		$this->register_hooks();
@@ -219,6 +246,9 @@ final class Plugin {
 
 		// Check for updates from GitHub.
 		add_filter( 'pre_set_site_transient_update_plugins', [ $this->updater, 'check_for_updates' ] );
+
+		// Register gclid capture for Google Ads click tracking.
+		add_filter( 'kntnt_ad_attr_click_id_capturers', [ $this->gclid_capturer, 'register' ] );
 	}
 
 	/**
