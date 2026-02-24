@@ -1,0 +1,61 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Claude Code
+.claude/
+
+# Testing
+.env.testing
+/test-results/
+/coverage/
+.phpunit.cache/
+tests/pest_stderr.txt
+tests/results.xml
+
+# VS Code
+.vscode/
+
+# Zed
+.zed/
+
+# PHPStorm / JetBrains
+.idea/
+
+# Emacs
+\#*\#
+*.elc
+.emacs.desktop
+.emacs.desktop.lock
+auto-save-list/
+
+# Vim
+*.swp
+*.swo
+*.swn
+*.un~
+Session.vim
+.netrwhist
+
+# Composer
+vendor/
+composer.lock
+
+# PHP
+*.phar
