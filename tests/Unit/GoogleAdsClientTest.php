@@ -77,6 +77,71 @@ describe('Google_Ads_Client::test_connection()', function () {
         expect($result)->toBe(['success' => true, 'error' => '']);
     });
 
+    it('sends correct OAuth2 parameters in token refresh request', function () {
+        stub_response_helpers();
+
+        // Capture the token refresh request to verify OAuth2 parameters.
+        $captured_url  = null;
+        $captured_body = null;
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->withArgs(function (string $url, array $args) use (&$captured_url, &$captured_body) {
+                $captured_url  = $url;
+                $captured_body = $args['body'];
+                return true;
+            })
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'access_token' => 'fresh_token',
+                    'expires_in'   => 3600,
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\when('set_transient')->justReturn(true);
+
+        $client = make_client();
+        $client->test_connection();
+
+        // Verify the token endpoint URL.
+        expect($captured_url)->toBe('https://oauth2.googleapis.com/token');
+
+        // Verify all required OAuth2 parameters.
+        expect($captured_body['grant_type'])->toBe('refresh_token');
+        expect($captured_body['client_id'])->toBe('client.apps.googleusercontent.com');
+        expect($captured_body['client_secret'])->toBe('secret');
+        expect($captured_body['refresh_token'])->toBe('refresh_abc');
+    });
+
+    it('clamps token TTL to zero when expires_in is below safety margin', function () {
+        stub_response_helpers();
+
+        // Token response with expires_in smaller than the 300s safety margin.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'access_token' => 'short_lived_token',
+                    'expires_in'   => 100,
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        // TTL should be max(0, 100 - 300) = 0, not negative.
+        Functions\expect('set_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token', 'short_lived_token', 0)
+            ->andReturn(true);
+
+        $client = make_client();
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeTrue();
+    });
+
     it('fails when token refresh fails', function () {
         stub_response_helpers();
 
@@ -189,6 +254,53 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result)->toBe(['success' => true, 'error' => '']);
+    });
+
+    it('sends correctly structured conversion payload in upload request', function () {
+
+        // Cached token available — skip refresh.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        // Capture the upload request body.
+        $captured_body = null;
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->withArgs(function (string $url, array $args) use (&$captured_body) {
+                $captured_body = json_decode($args['body'], true);
+                return true;
+            })
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['results' => [[]]]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $client->upload_click_conversion(
+            'gclid_xyz',
+            'customers/1234567890/conversionActions/99',
+            '2026-03-15 14:30:00+01:00',
+            250.0,
+            'SEK',
+        );
+
+        // Verify the conversion payload structure matches Google Ads API spec.
+        expect($captured_body['partialFailure'])->toBeTrue();
+        expect($captured_body['conversions'])->toHaveCount(1);
+
+        $conversion = $captured_body['conversions'][0];
+        expect($conversion['gclid'])->toBe('gclid_xyz');
+        expect($conversion['conversionAction'])->toBe('customers/1234567890/conversionActions/99');
+        expect($conversion['conversionDateTime'])->toBe('2026-03-15 14:30:00+01:00');
+        expect((float) $conversion['conversionValue'])->toBe(250.0);
+        expect($conversion['currencyCode'])->toBe('SEK');
     });
 
     it('returns failure when token refresh fails', function () {
@@ -363,6 +475,204 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result['success'])->toBeTrue();
+    });
+
+    it('returns failure when token refresh returns empty body', function () {
+
+        // No cached token.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn(false);
+
+        stub_response_helpers();
+
+        // Token refresh returns 200 but with an empty body.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => '',
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Failed to obtain access token.');
+    });
+
+    it('returns failure when token refresh returns non-JSON body', function () {
+
+        // No cached token.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn(false);
+
+        stub_response_helpers();
+
+        // Token refresh returns 200 but body is not valid JSON.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => 'not json',
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Failed to obtain access token.');
+    });
+
+    it('returns failure when token response lacks expires_in', function () {
+
+        // No cached token.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn(false);
+
+        stub_response_helpers();
+
+        // Token response has access_token but no expires_in.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['access_token' => 'x']),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Failed to obtain access token.');
+    });
+
+    it('returns failure when token response lacks access_token', function () {
+
+        // No cached token.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn(false);
+
+        stub_response_helpers();
+
+        // Token response has expires_in but no access_token.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['expires_in' => 3600]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Failed to obtain access token.');
+    });
+
+    it('returns fallback message when partialFailureError lacks message key', function () {
+
+        // Cached token available.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        // Response has partialFailureError with code but no message.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'partialFailureError' => ['code' => 3],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Partial failure error');
+    });
+
+    it('returns failure when token refresh gets WP_Error', function () {
+
+        // No cached token.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn(false);
+
+        // Build a WP_Error for the token refresh request itself.
+        $wp_error = Mockery::mock('WP_Error');
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn($wp_error);
+
+        Functions\expect('is_wp_error')->once()->andReturn(true);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Failed to obtain access token.');
     });
 
     it('omits login-customer-id header when empty', function () {

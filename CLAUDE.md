@@ -106,6 +106,7 @@ kntnt-ad-attribution-gads/
         ├── GclidCapturerTest.php      ← Gclid capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
         ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
+        ├── BootstrapSafetyTest.php     ← Try-catch safety wrapper tests
         ├── GoogleAdsClientTest.php    ← API client token/upload tests
         └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
 ```

@@ -79,7 +79,29 @@ add_action( 'plugins_loaded', static function (): void {
 		return;
 	}
 
-	// Initialize the plugin.
-	Plugin::get_instance();
+	// Initialize the plugin inside a safety net. A fatal error here would
+	// take down the entire site, and without server access the only fix is
+	// a long chain of phone calls. The try-catch lets the rest of the site
+	// keep running while surfacing the problem in the admin dashboard.
+	try {
+		Plugin::get_instance();
+	} catch ( \Throwable $e ) {
+		error_log( sprintf(
+			'Kntnt Ad Attribution Gads: Fatal error during initialization — %s in %s on line %d',
+			$e->getMessage(),
+			$e->getFile(),
+			$e->getLine(),
+		) );
+		add_action( 'admin_notices', static function () use ( $e ): void {
+			printf(
+				'<div class="notice notice-error"><p>%s</p></div>',
+				esc_html( sprintf(
+					/* translators: %s: Error message from the caught exception. */
+					__( 'Kntnt Ad Attribution for Google Ads failed to initialize: %s', 'kntnt-ad-attr-gads' ),
+					$e->getMessage(),
+				) ),
+			);
+		} );
+	}
 
 }, 0 );
