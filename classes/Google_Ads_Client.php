@@ -68,6 +68,17 @@ final class Google_Ads_Client {
 	 *
 	 * @since 0.3.0
 	 */
+	/**
+	 * Last error message from a failed token refresh.
+	 *
+	 * Populated by `refresh_access_token()` so callers can surface
+	 * the specific reason for failure instead of a generic message.
+	 *
+	 * @var string
+	 * @since 1.1.1
+	 */
+	private string $last_refresh_error = '';
+
 	public function __construct(
 		private readonly string $customer_id,
 		private readonly string $developer_token,
@@ -83,17 +94,17 @@ final class Google_Ads_Client {
 	 * Bypasses the transient cache to verify that the current credentials
 	 * can successfully obtain an access token from Google.
 	 *
-	 * @return array{success: bool, error: string} Result with success flag and error message.
+	 * @return array{success: bool, error: string, credential_error: bool} Result with success flag, error message, and credential error flag.
 	 * @since 0.4.0
 	 */
 	public function test_connection(): array {
 		$token = $this->refresh_access_token();
 
 		if ( $token === null ) {
-			return [ 'success' => false, 'error' => 'Failed to obtain access token.' ];
+			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true ];
 		}
 
-		return [ 'success' => true, 'error' => '' ];
+		return [ 'success' => true, 'error' => '', 'credential_error' => false ];
 	}
 
 	/**
@@ -105,7 +116,7 @@ final class Google_Ads_Client {
 	 * @param float  $conversion_value     Monetary value of the conversion.
 	 * @param string $currency_code        ISO 4217 currency code.
 	 *
-	 * @return array{success: bool, error: string} Result with success flag and error message.
+	 * @return array{success: bool, error: string, credential_error: bool} Result with success flag, error message, and credential error flag.
 	 * @since 0.3.0
 	 */
 	public function upload_click_conversion(
@@ -119,7 +130,7 @@ final class Google_Ads_Client {
 		// Obtain a valid access token.
 		$access_token = $this->get_access_token();
 		if ( $access_token === null ) {
-			return [ 'success' => false, 'error' => 'Failed to obtain access token.' ];
+			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true ];
 		}
 
 		// Build the conversion payload.
@@ -146,24 +157,24 @@ final class Google_Ads_Client {
 
 		// Handle WP_Error (network failure, timeout, etc.).
 		if ( is_wp_error( $response ) ) {
-			return [ 'success' => false, 'error' => $response->get_error_message() ];
+			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false ];
 		}
 
 		// Check HTTP status.
 		$status_code = wp_remote_retrieve_response_code( $response );
 		if ( $status_code !== 200 ) {
 			$response_body = wp_remote_retrieve_body( $response );
-			return [ 'success' => false, 'error' => "HTTP {$status_code}: {$response_body}" ];
+			return [ 'success' => false, 'error' => "HTTP {$status_code}: {$response_body}", 'credential_error' => false ];
 		}
 
 		// Check for partial failure errors in the response body.
 		$response_body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( ! empty( $response_body['partialFailureError'] ) ) {
 			$error_message = $response_body['partialFailureError']['message'] ?? 'Partial failure error';
-			return [ 'success' => false, 'error' => $error_message ];
+			return [ 'success' => false, 'error' => $error_message, 'credential_error' => false ];
 		}
 
-		return [ 'success' => true, 'error' => '' ];
+		return [ 'success' => true, 'error' => '', 'credential_error' => false ];
 	}
 
 	/**
@@ -192,6 +203,8 @@ final class Google_Ads_Client {
 	 */
 	private function refresh_access_token(): ?string {
 
+		$this->last_refresh_error = '';
+
 		// Request a new access token from Google.
 		$response = wp_remote_post( self::TOKEN_URL, [
 			'body' => [
@@ -204,12 +217,14 @@ final class Google_Ads_Client {
 
 		// Handle WP_Error.
 		if ( is_wp_error( $response ) ) {
+			$this->last_refresh_error = $response->get_error_message();
 			return null;
 		}
 
 		// Parse the token response.
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( empty( $body['access_token'] ) || empty( $body['expires_in'] ) ) {
+			$this->last_refresh_error = $body['error_description'] ?? $body['error'] ?? 'Unexpected token response.';
 			return null;
 		}
 

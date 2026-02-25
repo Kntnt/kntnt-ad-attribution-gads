@@ -176,7 +176,7 @@ final class Conversion_Reporter {
 		if ( ! $result['success'] ) {
 
 			// Flag credential problems so the admin notice can alert the user.
-			if ( str_contains( $result['error'], 'access token' ) ) {
+			if ( ! empty( $result['credential_error'] ) ) {
 				set_transient( self::CREDENTIAL_ERROR_TRANSIENT, 'token_refresh_failed', 0 );
 			}
 

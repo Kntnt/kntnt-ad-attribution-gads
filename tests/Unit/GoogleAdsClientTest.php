@@ -74,7 +74,7 @@ describe('Google_Ads_Client::test_connection()', function () {
         $client = make_client();
         $result = $client->test_connection();
 
-        expect($result)->toBe(['success' => true, 'error' => '']);
+        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false]);
     });
 
     it('sends correct OAuth2 parameters in token refresh request', function () {
@@ -145,7 +145,30 @@ describe('Google_Ads_Client::test_connection()', function () {
     it('fails when token refresh fails', function () {
         stub_response_helpers();
 
-        // Token refresh returns error.
+        // Token refresh returns error with description.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'error'             => 'invalid_grant',
+                    'error_description' => 'Token has been expired or revoked.',
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Token has been expired or revoked.');
+    });
+
+    it('falls back to error code when error_description is absent', function () {
+        stub_response_helpers();
+
+        // Token refresh returns error without description.
         Functions\expect('wp_remote_post')
             ->once()
             ->andReturn([
@@ -159,7 +182,27 @@ describe('Google_Ads_Client::test_connection()', function () {
         $result = $client->test_connection();
 
         expect($result['success'])->toBeFalse();
-        expect($result['error'])->toBe('Failed to obtain access token.');
+        expect($result['error'])->toBe('invalid_grant');
+    });
+
+    it('surfaces WP_Error message on network failure', function () {
+        // Build a mock WP_Error for the token refresh request.
+        $wp_error = Mockery::mock('WP_Error');
+        $wp_error->shouldReceive('get_error_message')
+            ->once()
+            ->andReturn('cURL error 28: Connection timed out');
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn($wp_error);
+
+        Functions\expect('is_wp_error')->once()->andReturn(true);
+
+        $client = make_client();
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('cURL error 28: Connection timed out');
     });
 
 });
@@ -202,7 +245,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
             'SEK',
         );
 
-        expect($result)->toBe(['success' => true, 'error' => '']);
+        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false]);
     });
 
     it('succeeds with token refresh when cache is empty', function () {
@@ -253,7 +296,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
             'SEK',
         );
 
-        expect($result)->toBe(['success' => true, 'error' => '']);
+        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false]);
     });
 
     it('sends correctly structured conversion payload in upload request', function () {
@@ -313,12 +356,15 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         stub_response_helpers();
 
-        // Token refresh returns error response.
+        // Token refresh returns error response with description.
         Functions\expect('wp_remote_post')
             ->once()
             ->andReturn([
                 'response' => ['code' => 200],
-                'body'     => json_encode(['error' => 'invalid_grant']),
+                'body'     => json_encode([
+                    'error'             => 'invalid_grant',
+                    'error_description' => 'Token has been expired or revoked.',
+                ]),
             ]);
 
         Functions\expect('is_wp_error')->once()->andReturn(false);
@@ -333,7 +379,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result['success'])->toBeFalse();
-        expect($result['error'])->toBe('Failed to obtain access token.');
+        expect($result['error'])->toBe('Token has been expired or revoked.');
     });
 
     it('returns failure on partial failure error', function () {
@@ -507,7 +553,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result['success'])->toBeFalse();
-        expect($result['error'])->toBe('Failed to obtain access token.');
+        expect($result['error'])->toBe('Unexpected token response.');
     });
 
     it('returns failure when token refresh returns non-JSON body', function () {
@@ -540,7 +586,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result['success'])->toBeFalse();
-        expect($result['error'])->toBe('Failed to obtain access token.');
+        expect($result['error'])->toBe('Unexpected token response.');
     });
 
     it('returns failure when token response lacks expires_in', function () {
@@ -573,7 +619,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result['success'])->toBeFalse();
-        expect($result['error'])->toBe('Failed to obtain access token.');
+        expect($result['error'])->toBe('Unexpected token response.');
     });
 
     it('returns failure when token response lacks access_token', function () {
@@ -606,7 +652,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result['success'])->toBeFalse();
-        expect($result['error'])->toBe('Failed to obtain access token.');
+        expect($result['error'])->toBe('Unexpected token response.');
     });
 
     it('returns fallback message when partialFailureError lacks message key', function () {
@@ -655,6 +701,9 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         // Build a WP_Error for the token refresh request itself.
         $wp_error = Mockery::mock('WP_Error');
+        $wp_error->shouldReceive('get_error_message')
+            ->once()
+            ->andReturn('cURL error 6: Could not resolve host');
 
         Functions\expect('wp_remote_post')
             ->once()
@@ -672,7 +721,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result['success'])->toBeFalse();
-        expect($result['error'])->toBe('Failed to obtain access token.');
+        expect($result['error'])->toBe('cURL error 6: Could not resolve host');
     });
 
     it('omits login-customer-id header when empty', function () {
