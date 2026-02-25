@@ -191,7 +191,7 @@ Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHu
 
 ### Architecture Overview
 
-**Singleton bootstrap:** `kntnt-ad-attribution-gads.php` loads `autoloader.php` (PSR-4 for `Kntnt\Ad_Attribution_Gads\*` → `classes/*.php`), creates the `Dependencies` guard, then `Plugin::get_instance()` creates the singleton which instantiates all components and registers hooks. A PHP 8.3 version check and core plugin dependency check abort with admin notices if requirements are not met.
+**Singleton bootstrap:** `kntnt-ad-attribution-gads.php` loads `autoloader.php` (PSR-4 for `Kntnt\Ad_Attribution_Gads\*` → `classes/*.php`), creates the `Dependencies` guard, then `Plugin::get_instance()` creates the singleton which instantiates all components and registers hooks. A PHP 8.3 version check and core plugin dependency check abort with admin notices if requirements are not met. The `get_instance()` call is wrapped in `try { … } catch (\Throwable)` so that an unexpected error during initialization is logged and shown as an admin notice instead of taking down the entire site.
 
 **Dependency enforcement:** The `Dependencies` class emulates WordPress 6.5+ `Requires Plugins` behavior for plugins not hosted in the WordPress Plugin Directory. It provides three layers of protection:
 
@@ -257,8 +257,9 @@ kntnt-ad-attribution-gads/
         ├── GclidCapturerTest.php      ← Gclid capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
         ├── SettingsPageTest.php       ← Settings page sanitization tests
-        ├── GoogleAdsClientTest.php    ← API client token/upload tests
-        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process tests
+        ├── BootstrapSafetyTest.php    ← Try-catch safety wrapper tests
+        ├── GoogleAdsClientTest.php    ← API client token/upload/OAuth2 tests
+        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
 ```
 
 ### Naming Conventions
