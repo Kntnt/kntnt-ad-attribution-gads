@@ -79,51 +79,139 @@ If the core plugin is not active when you try to activate this add-on, activatio
 
 The plugin checks the PHP version on activation and aborts with a clear error message if the requirement is not met.
 
+
+
+
 ### Configuration Guide
 
-After activation, go to **Settings > Google Ads Attribution** to enter your credentials. The sections below explain where to find each value.
+After activation, go to **Settings > Google Ads Attribution** to enter your credentials. The following sections walk you through every step, including creating any accounts you may not already have.
 
-#### Customer ID
+#### Prerequisites
 
-Your 10-digit Customer ID is shown in the top-right corner of the [Google Ads dashboard](https://ads.google.com/aw/overview) (formatted as `123-456-7890`). Dashes are stripped automatically.
+Using the Google Ads API requires a **Google Ads Manager Account (MCC)**. This is a special account type primarily used by agencies and consultants to manage multiple Google Ads accounts, but it is also required for anyone who needs API access — even if you only manage a single account.
 
-#### Conversion Action ID
+If you don't already have one, you will create it in the steps below. It is free and does not affect your existing Google Ads account.
+
+#### Step 1: Create a Google Ads Manager Account (MCC)
+
+> Skip this step if you already have a manager account.
+
+1. Go to [ads.google.com/home/tools/manager-accounts](https://ads.google.com/home/tools/manager-accounts).
+2. Sign in with a Google account. **Note:** If your email is already associated with a regular Google Ads account, you may need to use a different email address.
+3. Follow the prompts to create the manager account. Give it a descriptive name (e.g. "Your Company — MCC").
+4. Once created, link your existing Google Ads account: go to **Accounts** in the manager account and add your Google Ads account as a managed account.
+
+Note the 10-digit **Manager Account ID** shown in the top-right corner (formatted as `XXX-XXX-XXXX`). You will need it later.
+
+#### Step 2: Get a Developer Token
+
+1. Sign in to your **Manager Account** (not your regular Google Ads account).
+2. Go to [ads.google.com/aw/apicenter](https://ads.google.com/aw/apicenter). If you see the message *"The API Center is only available to manager accounts"*, you are signed in to the wrong account — switch to the manager account.
+3. Fill in the form:
+   - **API contact email:** Your email address.
+   - **Company name:** Your company name.
+   - **Company website:** Your website URL (must be live and reachable).
+   - **Company type:** Choose the option that best describes you (e.g. "Agency/SEM" if you manage ads for clients, or "Advertiser" if you manage your own).
+   - **Purpose:** Describe your intended use. For example: *"Offline conversion tracking. We upload lead conversions from our websites to Google Ads via the Offline Conversion Upload API, so that Google's bidding algorithms can optimize for actual leads rather than just clicks."*
+4. Accept the Terms and Conditions and submit.
+5. You will typically receive **Explorer Access** immediately, which allows up to 2,880 API operations per day — more than sufficient for conversion uploads. You can apply for Basic Access later if needed.
+6. Copy the **Developer Token** (a 22-character alphanumeric string) shown on the API Center page.
+
+#### Step 3: Get the Conversion Action ID
 
 1. In Google Ads, go to [Goals > Conversions](https://ads.google.com/aw/conversions).
-2. Click **+ New conversion action** and choose **Import > Other data sources or CRMs > Track conversions from clicks**.
-3. Name the action (e.g. "Offline Lead") and save.
-4. Open the action and copy the numeric **Conversion Action ID** from the URL or the action details.
+2. If you already have a conversion action of type **Import > from clicks** (e.g. one used for offline conversion imports from Matomo or another source), you can reuse it. Otherwise, create a new one:
+   - Click **+ New conversion action**.
+   - Choose **Import > Other data sources or CRMs > Track conversions from clicks**.
+   - Name the action (e.g. "Offline Lead") and save.
+3. Open the conversion action. Copy the numeric **Conversion Action ID** — you can find it in the URL parameter `ctId` (e.g. `ctId=7171477836` → the ID is `7171477836`), or in the action details.
 
-#### Developer Token
+> **If you were previously importing conversions from another system** (e.g. Matomo's Conversion Export), you should disable that import to avoid double-counting. The plugin replaces the need for external conversion imports.
 
-1. In Google Ads, go to [Tools > API Center](https://ads.google.com/aw/apicenter).
-2. If you haven't applied for API access yet, follow the prompts to apply. A test account token (basic access) is sufficient for initial testing.
-3. Copy the **Developer Token** shown on the API Center page.
+#### Step 4: Set up a Google Cloud Project
 
-#### OAuth2 Client ID and Client Secret
+A Google Cloud project is needed to create the OAuth2 credentials that authorize the plugin to communicate with the Google Ads API.
 
-1. Open the [Google Cloud Console](https://console.cloud.google.com/) and select (or create) a project.
-2. Go to [APIs & Services > Library](https://console.cloud.google.com/apis/library) and enable the **Google Ads API**.
-3. Go to [APIs & Services > Credentials](https://console.cloud.google.com/apis/credentials) and click **+ Create Credentials > OAuth client ID**.
-4. Choose **Web application** as the application type. Add `https://developers.google.com/oauthplayground` as an authorized redirect URI.
-5. Copy the **Client ID** and **Client Secret** (the secret is only shown once at creation time).
+1. Go to [console.cloud.google.com](https://console.cloud.google.com).
+2. In the project selector at the top of the page, create a new project (e.g. "Google Ads Integration") or select an existing one.
+3. Go to [APIs & Services > Library](https://console.cloud.google.com/apis/library).
+4. Search for **Google Ads API**, click on it, and click **Enable**.
 
-#### OAuth2 Refresh Token
+#### Step 5: Configure the OAuth Consent Screen
 
-1. Open the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground/).
-2. Click the gear icon (⚙) in the top-right and check **Use your own OAuth credentials**. Enter your Client ID and Client Secret.
-3. In step 1 of the Playground, find **Google Ads API** and select the `https://www.googleapis.com/auth/adwords` scope. Click **Authorize APIs** and sign in with the Google account that has access to your Google Ads account.
-4. In step 2, click **Exchange authorization code for tokens**.
-5. Copy the **Refresh Token** from the response.
+Before you can create OAuth credentials, Google requires a consent screen configuration.
+
+1. Go to [Google Auth Platform > Overview](https://console.cloud.google.com/auth/overview) (or navigate via the sidebar: **APIs & Services > OAuth consent screen**).
+2. Click **Configure** (or **Get started** if this is a new project).
+3. Fill in the required fields:
+   - **App name:** A descriptive name (e.g. "Kntnt Ad Attribution").
+   - **User support email:** Your email address.
+   - **Audience / User type:** Choose **External**.
+   - **Developer contact email:** Your email address.
+4. You can skip all optional fields (logo, homepage, privacy policy, etc.).
+5. You can also skip the **Scopes** step if prompted — scopes are not needed here.
+6. Save and continue through all steps.
+
+#### Step 6: Create OAuth2 Client ID and Client Secret
+
+1. Go to [Google Auth Platform > Clients](https://console.cloud.google.com/auth/clients) (or navigate via **APIs & Services > Credentials**).
+2. Click **+ Create OAuth client** (or **+ Create Credentials > OAuth client ID**).
+3. Fill in the form:
+   - **Application type:** Web application.
+   - **Name:** A descriptive name (e.g. "Kntnt Ad Attribution").
+   - **Authorized redirect URIs:** Click **+ Add URI** and enter exactly: `https://developers.google.com/oauthplayground`
+4. Click **Create**.
+5. A dialog will show your **Client ID** and **Client Secret**. **Copy both immediately** — the Client Secret cannot be viewed again after you close this dialog.
+
+> **What is the redirect URI?** It is a security mechanism. When you authorize an app with Google, Google sends the authorization code *only* to pre-approved addresses. We use Google's OAuth Playground (a tool for generating tokens) as the redirect target, which is why the redirect URI points there. This is a one-time setup — the plugin itself does not use the redirect URI at runtime.
+
+#### Step 7: Generate a Refresh Token
+
+The Refresh Token allows the plugin to authenticate with Google on an ongoing basis without requiring you to log in each time.
+
+1. Go to [developers.google.com/oauthplayground](https://developers.google.com/oauthplayground).
+2. Click the **gear icon** (⚙) in the top-right corner.
+3. Check **"Use your own OAuth credentials"**.
+4. Enter your **Client ID** and **Client Secret** from the previous step.
+5. Close the settings panel.
+6. In the left panel (Step 1 — "Select & authorize APIs"):
+   - Scroll down and find **Google Ads API** in the list.
+   - Expand it and check the scope `https://www.googleapis.com/auth/adwords`.
+   - Click **Authorize APIs**.
+7. Sign in with the Google account that has access to your Google Ads account.
+8. You will likely see a warning that the app is not verified. This is expected — click **Advanced** and then **Go to [your app name] (unsafe)**. This is safe; the "unverified" warning appears because your OAuth app is not publicly published, which is fine for private use.
+9. Grant the requested permissions.
+10. You are redirected back to the Playground. In Step 2 ("Exchange authorization code for tokens"), click **Exchange authorization code for tokens**.
+11. The response panel will show a JSON object. Copy the value of **`refresh_token`** (a long string starting with `1//`).
+
+#### Step 8: Enter Credentials in WordPress
+
+Go to **Settings > Google Ads Attribution** and fill in:
+
+| Field | Value | Where to find it |
+| --- | --- | --- |
+| Customer ID | Your Google Ads account ID (10 digits) | Top-right corner of the [Google Ads dashboard](https://ads.google.com) |
+| Conversion Action ID | Numeric ID of the conversion action | Step 3 above |
+| Developer Token | 22-character alphanumeric string | Step 2 above (API Center in your manager account) |
+| OAuth2 Client ID | Long string ending in `.apps.googleusercontent.com` | Step 6 above |
+| OAuth2 Client Secret | String starting with `GOCSPX-` | Step 6 above |
+| OAuth2 Refresh Token | Long string starting with `1//` | Step 7 above |
+| Login Customer ID (MCC) | Your Manager Account ID (10 digits) | Top-right corner of your [manager account](https://ads.google.com) |
+
+> **Note on Login Customer ID:** Although the field is labeled "optional" in the UI, it is required in practice. The Developer Token can only be obtained through a Manager Account, and when authenticating through an MCC, the Login Customer ID must be provided.
 
 #### Conversion Defaults
 
-- **Default Conversion Value** — the monetary value assigned to each conversion (e.g. `100`). Set to `0` if you don't track conversion values.
-- **Currency Code** — the ISO 4217 currency (e.g. `SEK`, `USD`, `EUR`).
+At the bottom of the settings page:
+
+* **Default Conversion Value** — the monetary value assigned to each conversion (e.g. `100`). Set to `0` if you don't track conversion values.
+* **Currency Code** — the ISO 4217 currency code (e.g. `SEK`, `USD`, `EUR`).
 
 #### Test Connection
 
-Click the **Test Connection** button on the settings page. It verifies your OAuth2 credentials by performing a live token refresh against Google. If it succeeds, your Client ID, Client Secret, and Refresh Token are correct.
+Click the **Test Connection** button on the settings page. It verifies your OAuth2 credentials by performing a live token refresh against Google. A success message confirms that your Client ID, Client Secret, and Refresh Token are correct. An error message indicates which credential is invalid.
+
+> **Note:** The Test Connection button only verifies that the OAuth2 credentials can obtain an access token. It does not verify the Customer ID, Conversion Action ID, or Developer Token. Those are validated when the first conversion is actually uploaded.
 
 #### Login Customer ID (MCC)
 
