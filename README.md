@@ -40,7 +40,7 @@ Navigate to **Settings > Google Ads Attribution** to configure the plugin. The p
 - Conversion Action ID
 - Developer Token
 - OAuth2 Client ID, Client Secret, and Refresh Token
-- Login Customer ID (MCC) — optional, only needed for manager accounts
+- Login Customer ID (MCC)
 - **Test Connection** button — verifies that your OAuth2 credentials can obtain an access token from Google
 
 **Conversion Defaults:**
@@ -198,7 +198,7 @@ Go to **Settings > Google Ads Attribution** and fill in:
 | OAuth2 Refresh Token | Long string starting with `1//` | Step 7 above |
 | Login Customer ID (MCC) | Your Manager Account ID (10 digits) | Top-right corner of your [manager account](https://ads.google.com) |
 
-> **Note on Login Customer ID:** Although the field is labeled "optional" in the UI, it is required in practice. The Developer Token can only be obtained through a Manager Account, and when authenticating through an MCC, the Login Customer ID must be provided.
+> **Note:** A Manager Account (MCC) is required to obtain a Developer Token. When authenticating through an MCC, the Login Customer ID must be provided. Therefore all fields above are required.
 
 #### Conversion Defaults
 
@@ -215,7 +215,7 @@ Click the **Test Connection** button on the settings page. It verifies your OAut
 
 #### Login Customer ID (MCC)
 
-Only needed if you access the Google Ads account through a **Manager Account (MCC)**. Enter the 10-digit MCC Customer ID. Leave blank if you log in to the Google Ads account directly.
+Enter the 10-digit Customer ID of your **Manager Account (MCC)**. You can find it in the top-right corner of the [Google Ads Manager Account](https://ads.google.com) interface. A Manager Account is required because the Developer Token is only available through the API Center in a Manager Account.
 
 ### User FAQ
 

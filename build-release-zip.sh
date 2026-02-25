@@ -162,6 +162,7 @@ KEEP=(
   autoloader.php
   classes
   install.php
+  js
   kntnt-ad-attribution-gads.php
   languages
   LICENSE

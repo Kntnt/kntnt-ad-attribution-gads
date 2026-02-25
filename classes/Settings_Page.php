@@ -192,7 +192,7 @@ final class Settings_Page {
 				wp_kses(
 					sprintf(
 						/* translators: %s: URL to the configuration guide on GitHub */
-						__( 'Enter your Google Ads API credentials. All fields except Login Customer ID are required. See the <a href="%s" target="_blank" rel="noopener noreferrer">configuration guide</a> for step-by-step instructions.', 'kntnt-ad-attr-gads' ),
+						__( 'Enter your Google Ads API credentials. All fields are required. See the <a href="%s" target="_blank" rel="noopener noreferrer">configuration guide</a> for step-by-step instructions.', 'kntnt-ad-attr-gads' ),
 						'https://github.com/Kntnt/kntnt-ad-attribution-gads#configuration-guide',
 					),
 					[ 'a' => [ 'href' => [], 'target' => [], 'rel' => [] ] ],
@@ -417,7 +417,11 @@ final class Settings_Page {
 			'login_customer_id'    => [
 				'label'       => __( 'Login Customer ID (MCC)', 'kntnt-ad-attr-gads' ),
 				'type'        => 'text',
-				'description' => __( 'Optional. Required only if using a manager account (MCC).', 'kntnt-ad-attr-gads' ),
+				'description' => sprintf(
+					/* translators: %s: URL to the configuration guide section */
+					__( 'Your Manager Account (MCC) customer ID.<br><a href="%s" target="_blank" rel="noopener noreferrer" class="kntnt-ad-attr-gads-hint">Configuration guide</a>', 'kntnt-ad-attr-gads' ),
+					$guide . 'login-customer-id-mcc',
+				),
 			],
 		];
 
