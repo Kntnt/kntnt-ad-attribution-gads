@@ -206,23 +206,31 @@ final class Google_Ads_Client {
 		$this->last_refresh_error = '';
 
 		// Request a new access token from Google.
-		$response = wp_remote_post( self::TOKEN_URL, [
-			'body' => [
-				'grant_type'    => 'refresh_token',
-				'client_id'     => $this->client_id,
-				'client_secret' => $this->client_secret,
-				'refresh_token' => $this->refresh_token,
-			],
-		] );
+		$request_body = [
+			'grant_type'    => 'refresh_token',
+			'client_id'     => $this->client_id,
+			'client_secret' => $this->client_secret,
+			'refresh_token' => $this->refresh_token,
+		];
+
+		// TODO: Remove debug logging after troubleshooting.
+		error_log( 'Kntnt Ad Attribution Gads DEBUG: Token refresh request — client_id=' . substr( $this->client_id, 0, 15 ) . '… client_secret=' . substr( $this->client_secret, 0, 10 ) . '… refresh_token=' . substr( $this->refresh_token, 0, 10 ) . '…' );
+
+		$response = wp_remote_post( self::TOKEN_URL, [ 'body' => $request_body ] );
 
 		// Handle WP_Error.
 		if ( is_wp_error( $response ) ) {
 			$this->last_refresh_error = $response->get_error_message();
+			error_log( 'Kntnt Ad Attribution Gads DEBUG: Token refresh WP_Error — ' . $this->last_refresh_error );
 			return null;
 		}
 
 		// Parse the token response.
-		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		$raw_body = wp_remote_retrieve_body( $response );
+		$http_code = wp_remote_retrieve_response_code( $response );
+		error_log( 'Kntnt Ad Attribution Gads DEBUG: Token refresh response — HTTP ' . $http_code . ' — ' . $raw_body );
+
+		$body = json_decode( $raw_body, true );
 		if ( empty( $body['access_token'] ) || empty( $body['expires_in'] ) ) {
 			$this->last_refresh_error = $body['error_description'] ?? $body['error'] ?? 'Unexpected token response.';
 			return null;
