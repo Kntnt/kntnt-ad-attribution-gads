@@ -118,6 +118,34 @@ describe('Plugin::get_plugin_dir()', function () {
 
 });
 
+// ─── add_settings_link() ───
+
+describe('Plugin::add_settings_link()', function () {
+
+    it('prepends a Settings link to the action links array', function () {
+        // Stub WordPress functions needed by the constructor and method.
+        Functions\when('plugin_basename')->justReturn('kntnt-ad-attribution-gads/kntnt-ad-attribution-gads.php');
+        Functions\when('add_action')->justReturn(true);
+        Functions\when('add_filter')->justReturn(true);
+        Functions\when('admin_url')->alias(fn (string $path) => 'http://example.com/wp-admin/' . $path);
+        Functions\when('esc_url')->returnArg();
+        Functions\when('esc_html__')->returnArg();
+
+        // Use reflection to create an instance without triggering the singleton.
+        $ref = new ReflectionClass(Plugin::class);
+        $instance = $ref->newInstanceWithoutConstructor();
+
+        $existing = ['deactivate' => '<a href="#">Deactivate</a>'];
+        $result = $instance->add_settings_link($existing);
+
+        expect($result)->toHaveCount(2);
+        expect($result[0])->toContain('options-general.php?page=kntnt-ad-attr-gads');
+        expect($result[0])->toContain('Settings');
+        expect($result['deactivate'])->toBe('<a href="#">Deactivate</a>');
+    });
+
+});
+
 // ─── deactivate() ───
 
 describe('Plugin::deactivate()', function () {

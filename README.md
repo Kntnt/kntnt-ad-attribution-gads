@@ -99,9 +99,18 @@ If you don't already have one, you will create it in the steps below. It is free
 1. Go to [ads.google.com/home/tools/manager-accounts](https://ads.google.com/home/tools/manager-accounts).
 2. Sign in with a Google account. **Note:** If your email is already associated with a regular Google Ads account, you may need to use a different email address.
 3. Follow the prompts to create the manager account. Give it a descriptive name (e.g. "Your Company — MCC").
-4. Once created, link your existing Google Ads account: go to **Accounts** in the manager account and add your Google Ads account as a managed account.
+4. Note the 10-digit **Manager Account ID** shown in the top-right corner (formatted as `XXX-XXX-XXXX`). You will need it later.
+5. Link your existing Google Ads account to the manager account:
+   1. In the manager account, go to **Admin** (gear icon) > **Sub-account settings**.
+   2. Click **+** and enter the Customer ID of your Google Ads account (the 10-digit number shown in the top-right corner of your [Google Ads dashboard](https://ads.google.com)).
+   3. A link request is sent to the Google Ads account.
+6. Accept the link request from the Google Ads account side:
+   1. Sign in to [ads.google.com](https://ads.google.com) with the account that has access to your Google Ads account (verify the correct Customer ID in the top-right corner).
+   2. Go to **Admin** (gear icon) > **Access and security**.
+   3. Click the **Managers** tab.
+   4. Accept the pending request from your manager account.
 
-Note the 10-digit **Manager Account ID** shown in the top-right corner (formatted as `XXX-XXX-XXXX`). You will need it later.
+> **Why is this needed?** The Developer Token (obtained in the next step) belongs to the manager account. API calls use the `login-customer-id` header to identify the manager account, but this only works if the manager account actually manages the target Google Ads account. Without this link, API calls will fail with `USER_PERMISSION_DENIED`.
 
 #### Step 2: Get a Developer Token
 

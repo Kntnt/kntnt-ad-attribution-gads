@@ -264,6 +264,10 @@ final class Plugin {
 
 		// Reset failed queue jobs when settings are updated with valid credentials.
 		add_action( 'update_option_' . Settings::OPTION_KEY, [ $this, 'on_settings_updated' ], 10, 2 );
+
+		// Add a "Settings" link to the plugin row on the Plugins page.
+		$basename = plugin_basename( self::get_plugin_file() );
+		add_filter( "plugin_action_links_{$basename}", [ $this, 'add_settings_link' ] );
 	}
 
 	/**
@@ -286,6 +290,21 @@ final class Plugin {
 		if ( $this->settings->is_configured() ) {
 			$this->conversion_reporter->reset_failed_jobs();
 		}
+	}
+
+	/**
+	 * Adds a "Settings" action link to the plugin row on the Plugins page.
+	 *
+	 * @param string[] $links Existing action links.
+	 *
+	 * @return string[] Modified action links with "Settings" prepended.
+	 * @since 1.3.1
+	 */
+	public function add_settings_link( array $links ): array {
+		$url  = admin_url( 'options-general.php?page=kntnt-ad-attr-gads' );
+		$link = sprintf( '<a href="%s">%s</a>', esc_url( $url ), esc_html__( 'Settings', 'kntnt-ad-attr-gads' ) );
+		array_unshift( $links, $link );
+		return $links;
 	}
 
 	/**
