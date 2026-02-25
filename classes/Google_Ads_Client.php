@@ -75,17 +75,17 @@ final class Google_Ads_Client {
 	 * the specific reason for failure instead of a generic message.
 	 *
 	 * @var string
-	 * @since 1.1.1
+	 * @since 1.1.2
 	 */
 	private string $last_refresh_error = '';
 
 	/**
-	 * Raw debug info from the last token refresh attempt.
+	 * Raw Google response from the last failed token refresh.
 	 *
-	 * TODO: Remove after troubleshooting.
+	 * Includes HTTP status code and response body for diagnostics.
 	 *
 	 * @var string
-	 * @since 1.1.5
+	 * @since 1.2.0
 	 */
 	private string $last_refresh_debug = '';
 
@@ -217,14 +217,14 @@ final class Google_Ads_Client {
 		$this->last_refresh_debug = '';
 
 		// Request a new access token from Google.
-		$request_body = [
-			'grant_type'    => 'refresh_token',
-			'client_id'     => $this->client_id,
-			'client_secret' => $this->client_secret,
-			'refresh_token' => $this->refresh_token,
-		];
-
-		$response = wp_remote_post( self::TOKEN_URL, [ 'body' => $request_body ] );
+		$response = wp_remote_post( self::TOKEN_URL, [
+			'body' => [
+				'grant_type'    => 'refresh_token',
+				'client_id'     => $this->client_id,
+				'client_secret' => $this->client_secret,
+				'refresh_token' => $this->refresh_token,
+			],
+		] );
 
 		// Handle WP_Error.
 		if ( is_wp_error( $response ) ) {

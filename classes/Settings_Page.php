@@ -347,19 +347,16 @@ final class Settings_Page {
 			return;
 		}
 
-		// TODO: Remove debug details after troubleshooting.
-		$debug = sprintf(
-			"\n\nDebug: client_id=%s… (len %d) | client_secret=%s… (len %d) | refresh_token=%s… (len %d)\n\nGoogle response: %s",
-			substr( $settings['client_id'], 0, 15 ),
-			strlen( $settings['client_id'] ),
-			substr( $settings['client_secret'], 0, 10 ),
-			strlen( $settings['client_secret'] ),
-			substr( $settings['refresh_token'], 0, 10 ),
-			strlen( $settings['refresh_token'] ),
+		// Include masked diagnostics to aid troubleshooting.
+		$diagnostics = sprintf(
+			"\n\nDiagnostics: client_id=%s | client_secret=%s | refresh_token=%s\n\nGoogle response: %s",
+			$settings['client_id'],
+			self::mask( $settings['client_secret'] ),
+			self::mask( $settings['refresh_token'] ),
 			$result['debug'] ?? 'N/A',
 		);
 
-		wp_send_json_error( [ 'message' => $result['error'] . $debug ] );
+		wp_send_json_error( [ 'message' => $result['error'] . $diagnostics ] );
 	}
 
 	/**
@@ -579,6 +576,29 @@ final class Settings_Page {
 			);
 		}
 		echo '</select>';
+	}
+
+	/**
+	 * Masks a string, revealing only the last 4 characters.
+	 *
+	 * @param string $value String to mask.
+	 *
+	 * @return string Masked string (e.g. "••••hA_Z") or empty if input is empty.
+	 * @since 1.2.0
+	 */
+	private static function mask( string $value ): string {
+		$visible = 4;
+		$length  = strlen( $value );
+
+		if ( $length === 0 ) {
+			return '';
+		}
+
+		if ( $length <= $visible ) {
+			return str_repeat( '*', $length );
+		}
+
+		return str_repeat( '*', $length - $visible ) . substr( $value, -$visible );
 	}
 
 }

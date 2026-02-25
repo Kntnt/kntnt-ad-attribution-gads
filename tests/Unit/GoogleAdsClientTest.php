@@ -74,7 +74,7 @@ describe('Google_Ads_Client::test_connection()', function () {
         $client = make_client();
         $result = $client->test_connection();
 
-        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false]);
+        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false, 'debug' => '']);
     });
 
     it('sends correct OAuth2 parameters in token refresh request', function () {
