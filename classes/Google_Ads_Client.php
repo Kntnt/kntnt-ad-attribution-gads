@@ -38,7 +38,7 @@ final class Google_Ads_Client {
 	 * @var string
 	 * @since 0.3.0
 	 */
-	private const API_BASE_URL = 'https://googleads.googleapis.com/v19';
+	private const API_BASE_URL = 'https://googleads.googleapis.com/v23';
 
 	/**
 	 * Transient key for cached access token.

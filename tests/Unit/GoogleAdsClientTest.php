@@ -301,7 +301,7 @@ describe('Google_Ads_Client::test_connection() phase 2', function () {
         $client->test_connection();
 
         // Verify GAQL endpoint URL.
-        expect($captured_url)->toBe('https://googleads.googleapis.com/v19/customers/1234567890/googleAds:search');
+        expect($captured_url)->toBe('https://googleads.googleapis.com/v23/customers/1234567890/googleAds:search');
 
         // Verify headers.
         expect($captured_headers['Authorization'])->toBe('Bearer fresh_token');
