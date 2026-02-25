@@ -14,7 +14,7 @@ use Brain\Monkey\Functions;
 /**
  * Creates a client instance with sensible test defaults.
  */
-function make_client(string $login_customer_id = ''): Google_Ads_Client {
+function make_client(string $login_customer_id = '', string $conversion_action_id = ''): Google_Ads_Client {
     return new Google_Ads_Client(
         customer_id: '1234567890',
         developer_token: 'dev_token',
@@ -22,6 +22,7 @@ function make_client(string $login_customer_id = ''): Google_Ads_Client {
         client_secret: 'secret',
         refresh_token: 'refresh_abc',
         login_customer_id: $login_customer_id,
+        conversion_action_id: $conversion_action_id,
     );
 }
 
@@ -74,7 +75,7 @@ describe('Google_Ads_Client::test_connection()', function () {
         $client = make_client();
         $result = $client->test_connection();
 
-        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false, 'debug' => '']);
+        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '']);
     });
 
     it('sends correct OAuth2 parameters in token refresh request', function () {
@@ -203,6 +204,284 @@ describe('Google_Ads_Client::test_connection()', function () {
 
         expect($result['success'])->toBeFalse();
         expect($result['error'])->toBe('cURL error 28: Connection timed out');
+    });
+
+});
+
+// ─── test_connection() — phase 2: Google Ads API verification ───
+
+describe('Google_Ads_Client::test_connection() phase 2', function () {
+
+    /**
+     * Stubs a successful token refresh as the first wp_remote_post call.
+     */
+    function stub_successful_token_refresh(): void {
+        Functions\expect('set_transient')
+            ->once()
+            ->andReturn(true);
+    }
+
+    it('succeeds when token refresh and GAQL query both succeed', function () {
+        stub_response_helpers();
+        stub_wp_json_encode();
+        stub_successful_token_refresh();
+
+        // First call: token refresh. Second call: GAQL search.
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url) {
+                if (str_contains($url, 'oauth2.googleapis.com/token')) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode([
+                            'access_token' => 'fresh_token',
+                            'expires_in'   => 3600,
+                        ]),
+                    ];
+                }
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode([
+                        'results' => [
+                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead']],
+                        ],
+                    ]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client(conversion_action_id: '99');
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeTrue();
+        expect($result['conversion_action_name'])->toBe('Offline Lead');
+    });
+
+    it('sends correct GAQL request URL, headers, and body', function () {
+        stub_response_helpers();
+        stub_wp_json_encode();
+        stub_successful_token_refresh();
+
+        $captured_url     = null;
+        $captured_headers = null;
+        $captured_body    = null;
+
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url, array $args) use (&$captured_url, &$captured_headers, &$captured_body) {
+                if (str_contains($url, 'oauth2.googleapis.com/token')) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode([
+                            'access_token' => 'fresh_token',
+                            'expires_in'   => 3600,
+                        ]),
+                    ];
+                }
+
+                // Capture GAQL request details.
+                $captured_url     = $url;
+                $captured_headers = $args['headers'];
+                $captured_body    = json_decode($args['body'], true);
+
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode([
+                        'results' => [
+                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead']],
+                        ],
+                    ]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client(login_customer_id: '5555555555', conversion_action_id: '99');
+        $client->test_connection();
+
+        // Verify GAQL endpoint URL.
+        expect($captured_url)->toBe('https://googleads.googleapis.com/v19/customers/1234567890/googleAds:search');
+
+        // Verify headers.
+        expect($captured_headers['Authorization'])->toBe('Bearer fresh_token');
+        expect($captured_headers['developer-token'])->toBe('dev_token');
+        expect($captured_headers['login-customer-id'])->toBe('5555555555');
+        expect($captured_headers['Content-Type'])->toBe('application/json');
+
+        // Verify GAQL query in body.
+        expect($captured_body['query'])->toContain('conversion_action.id = 99');
+    });
+
+    it('returns credential error on HTTP 403 from Google Ads API', function () {
+        stub_response_helpers();
+        stub_wp_json_encode();
+        stub_successful_token_refresh();
+
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url) {
+                if (str_contains($url, 'oauth2.googleapis.com/token')) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode([
+                            'access_token' => 'fresh_token',
+                            'expires_in'   => 3600,
+                        ]),
+                    ];
+                }
+                return [
+                    'response' => ['code' => 403],
+                    'body'     => json_encode([
+                        'error' => ['message' => 'The developer token is not approved.'],
+                    ]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client(conversion_action_id: '99');
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeFalse();
+        expect($result['credential_error'])->toBeTrue();
+        expect($result['error'])->toContain('developer token');
+    });
+
+    it('returns credential error when conversion action is not found', function () {
+        stub_response_helpers();
+        stub_wp_json_encode();
+        stub_successful_token_refresh();
+
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url) {
+                if (str_contains($url, 'oauth2.googleapis.com/token')) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode([
+                            'access_token' => 'fresh_token',
+                            'expires_in'   => 3600,
+                        ]),
+                    ];
+                }
+
+                // HTTP 200 but empty results — conversion action not found.
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode(['results' => []]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client(conversion_action_id: '999999');
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeFalse();
+        expect($result['credential_error'])->toBeTrue();
+        expect($result['error'])->toContain('999999');
+        expect($result['error'])->toContain('1234567890');
+    });
+
+    it('returns non-credential error on WP_Error during GAQL query', function () {
+        stub_response_helpers();
+        stub_wp_json_encode();
+        stub_successful_token_refresh();
+
+        $wp_error = Mockery::mock('WP_Error');
+        $wp_error->shouldReceive('get_error_message')
+            ->once()
+            ->andReturn('cURL error 28: Connection timed out');
+
+        $call_count = 0;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url) use ($wp_error, &$call_count) {
+                $call_count++;
+                if ($call_count === 1) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode([
+                            'access_token' => 'fresh_token',
+                            'expires_in'   => 3600,
+                        ]),
+                    ];
+                }
+                return $wp_error;
+            });
+
+        Functions\expect('is_wp_error')
+            ->twice()
+            ->andReturnUsing(fn ($response) => $response === $wp_error);
+
+        $client = make_client(conversion_action_id: '99');
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeFalse();
+        expect($result['credential_error'])->toBeFalse();
+        expect($result['error'])->toBe('cURL error 28: Connection timed out');
+    });
+
+    it('omits login-customer-id header when not set', function () {
+        stub_response_helpers();
+        stub_wp_json_encode();
+        stub_successful_token_refresh();
+
+        $gaql_headers = null;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url, array $args) use (&$gaql_headers) {
+                if (str_contains($url, 'oauth2.googleapis.com/token')) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode([
+                            'access_token' => 'fresh_token',
+                            'expires_in'   => 3600,
+                        ]),
+                    ];
+                }
+                $gaql_headers = $args['headers'];
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode([
+                        'results' => [
+                            ['conversionAction' => ['id' => '99', 'name' => 'Lead']],
+                        ],
+                    ]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client(conversion_action_id: '99');
+        $client->test_connection();
+
+        expect($gaql_headers)->not->toHaveKey('login-customer-id');
+    });
+
+    it('skips phase 2 when conversion_action_id is empty', function () {
+        stub_response_helpers();
+
+        // Only one wp_remote_post call — no GAQL request.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'access_token' => 'fresh_token',
+                    'expires_in'   => 3600,
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('set_transient')->once()->andReturn(true);
+
+        $client = make_client();
+        $result = $client->test_connection();
+
+        expect($result['success'])->toBeTrue();
+        expect($result['conversion_action_name'])->toBe('');
     });
 
 });

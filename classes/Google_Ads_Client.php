@@ -59,12 +59,13 @@ final class Google_Ads_Client {
 	/**
 	 * Creates a new API client with the given credentials.
 	 *
-	 * @param string $customer_id      Google Ads customer ID (digits only).
-	 * @param string $developer_token  Google Ads API developer token.
-	 * @param string $client_id        OAuth2 client ID.
-	 * @param string $client_secret    OAuth2 client secret.
-	 * @param string $refresh_token    OAuth2 refresh token.
-	 * @param string $login_customer_id Optional MCC login customer ID.
+	 * @param string $customer_id        Google Ads customer ID (digits only).
+	 * @param string $developer_token    Google Ads API developer token.
+	 * @param string $client_id          OAuth2 client ID.
+	 * @param string $client_secret      OAuth2 client secret.
+	 * @param string $refresh_token      OAuth2 refresh token.
+	 * @param string $login_customer_id  Optional MCC login customer ID.
+	 * @param string $conversion_action_id Optional conversion action ID for test_connection() phase 2.
 	 *
 	 * @since 0.3.0
 	 */
@@ -96,25 +97,37 @@ final class Google_Ads_Client {
 		private readonly string $client_secret,
 		private readonly string $refresh_token,
 		private readonly string $login_customer_id = '',
+		private readonly string $conversion_action_id = '',
 	) {}
 
 	/**
-	 * Tests the connection by forcing a fresh OAuth2 token refresh.
+	 * Tests the connection by verifying credentials in two phases.
 	 *
-	 * Bypasses the transient cache to verify that the current credentials
-	 * can successfully obtain an access token from Google.
+	 * Phase 1: Forces a fresh OAuth2 token refresh to verify client_id,
+	 * client_secret, and refresh_token.
 	 *
-	 * @return array{success: bool, error: string, credential_error: bool} Result with success flag, error message, and credential error flag.
+	 * Phase 2 (if conversion_action_id is set): Queries the Google Ads API
+	 * to verify customer_id, developer_token, login_customer_id, and
+	 * conversion_action_id in a single GAQL request.
+	 *
+	 * @return array{success: bool, error: string, credential_error: bool, debug: string, conversion_action_name: string} Result with success flag, error message, credential error flag, debug info, and conversion action name.
 	 * @since 0.4.0
 	 */
 	public function test_connection(): array {
+
+		// Phase 1: Verify OAuth2 credentials via token refresh.
 		$token = $this->refresh_access_token();
 
 		if ( $token === null ) {
-			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'debug' => $this->last_refresh_debug ];
+			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'debug' => $this->last_refresh_debug, 'conversion_action_name' => '' ];
 		}
 
-		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'debug' => '' ];
+		// Phase 2: Verify Google Ads API credentials if conversion_action_id is set.
+		if ( $this->conversion_action_id !== '' ) {
+			return $this->verify_google_ads_access( $token );
+		}
+
+		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '' ];
 	}
 
 	/**
@@ -185,6 +198,61 @@ final class Google_Ads_Client {
 		}
 
 		return [ 'success' => true, 'error' => '', 'credential_error' => false ];
+	}
+
+	/**
+	 * Verifies Google Ads API access by querying for the conversion action.
+	 *
+	 * Sends a GAQL query to validate customer_id, developer_token,
+	 * login_customer_id, and conversion_action_id in a single request.
+	 *
+	 * @param string $access_token Valid OAuth2 access token.
+	 *
+	 * @return array{success: bool, error: string, credential_error: bool, debug: string, conversion_action_name: string} Result with success flag, error message, credential error flag, debug info, and conversion action name.
+	 * @since 1.3.0
+	 */
+	private function verify_google_ads_access( string $access_token ): array {
+
+		// Query the conversion action by ID to validate all remaining credentials.
+		$query = "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.id = {$this->conversion_action_id}";
+		$url   = self::API_BASE_URL . "/customers/{$this->customer_id}/googleAds:search";
+
+		$response = wp_remote_post( $url, [
+			'headers' => $this->build_api_headers( $access_token ),
+			'body'    => wp_json_encode( [ 'query' => $query ] ),
+			'timeout' => 30,
+		] );
+
+		// Handle WP_Error (network failure, timeout, etc.).
+		if ( is_wp_error( $response ) ) {
+			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '' ];
+		}
+
+		$status_code = wp_remote_retrieve_response_code( $response );
+		$raw_body    = wp_remote_retrieve_body( $response );
+		$body        = json_decode( $raw_body, true );
+
+		// Non-200 means invalid developer_token, customer_id, or login_customer_id.
+		if ( $status_code !== 200 ) {
+			$error = $body['error']['message'] ?? "HTTP {$status_code}: {$raw_body}";
+			return [ 'success' => false, 'error' => $error, 'credential_error' => true, 'debug' => "HTTP {$status_code}: {$raw_body}", 'conversion_action_name' => '' ];
+		}
+
+		// HTTP 200 but no results means the conversion action ID doesn't exist.
+		if ( empty( $body['results'] ) ) {
+			return [
+				'success'                => false,
+				'error'                  => sprintf( 'Conversion action %s not found in Google Ads account %s.', $this->conversion_action_id, $this->customer_id ),
+				'credential_error'       => true,
+				'debug'                  => "HTTP 200: {$raw_body}",
+				'conversion_action_name' => '',
+			];
+		}
+
+		// All credentials verified — extract the conversion action name.
+		$name = $body['results'][0]['conversionAction']['name'] ?? '';
+
+		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => $name ];
 	}
 
 	/**

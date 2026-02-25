@@ -28,7 +28,7 @@ The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookie
 - Queues and uploads conversions to Google Ads via the Offline Conversion Upload API.
 - Resilient queuing — conversions are always queued regardless of credential status. Missing credentials are filled in from current settings when the job is processed.
 - Failed jobs are automatically reset when settings are updated with valid credentials.
-- **Test Connection** button verifies OAuth2 credentials by performing a live token refresh.
+- **Test Connection** button verifies all credentials — OAuth2 tokens, Customer ID, Developer Token, Login Customer ID, and Conversion Action ID — in a single click.
 - Persistent admin notice warns when uploads fail due to missing or invalid credentials.
 
 ### Settings Page
@@ -41,7 +41,7 @@ Navigate to **Settings > Google Ads Attribution** to configure the plugin. The p
 - Developer Token
 - OAuth2 Client ID, Client Secret, and Refresh Token
 - Login Customer ID (MCC)
-- **Test Connection** button — verifies that your OAuth2 credentials can obtain an access token from Google
+- **Test Connection** button — verifies all credentials (OAuth2 tokens, Customer ID, Developer Token, Login Customer ID, and Conversion Action ID) in a single click
 
 **Conversion Defaults:**
 - Default Conversion Value (numeric, >= 0)
@@ -209,9 +209,12 @@ At the bottom of the settings page:
 
 #### Test Connection
 
-Click the **Test Connection** button on the settings page. It verifies your OAuth2 credentials by performing a live token refresh against Google. A success message confirms that your Client ID, Client Secret, and Refresh Token are correct. An error message indicates which credential is invalid.
+Click the **Test Connection** button on the settings page. It performs a two-phase verification:
 
-> **Note:** The Test Connection button only verifies that the OAuth2 credentials can obtain an access token. It does not verify the Customer ID, Conversion Action ID, or Developer Token. Those are validated when the first conversion is actually uploaded.
+1. **OAuth2 verification** — forces a fresh token refresh to validate your Client ID, Client Secret, and Refresh Token.
+2. **Google Ads API verification** — queries the Google Ads API to validate your Customer ID, Developer Token, Login Customer ID, and Conversion Action ID.
+
+A success message confirms that all credentials are valid and displays the name of the verified conversion action. An error message indicates which credential or setting is invalid, along with masked diagnostics to aid troubleshooting.
 
 #### Login Customer ID (MCC)
 

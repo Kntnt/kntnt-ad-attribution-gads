@@ -234,7 +234,7 @@ describe('Settings_Page::handle_test_connection()', function () {
         expect($error_sent['message'])->toContain('required credentials');
     });
 
-    it('returns success on successful token refresh', function () {
+    it('returns success on successful token refresh and GAQL verification', function () {
         Functions\when('is_admin')->justReturn(false);
         Functions\expect('check_ajax_referer')
             ->once()
@@ -258,25 +258,39 @@ describe('Settings_Page::handle_test_connection()', function () {
             'currency_code'        => 'SEK',
         ]);
 
-        // Stub token refresh HTTP call.
+        // Stub response helpers.
         Functions\when('wp_remote_retrieve_response_code')->alias(
             fn ($response) => $response['response']['code'] ?? 0,
         );
         Functions\when('wp_remote_retrieve_body')->alias(
             fn ($response) => $response['body'] ?? '',
         );
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
 
+        // First call: token refresh. Second call: GAQL search.
         Functions\expect('wp_remote_post')
-            ->once()
-            ->andReturn([
-                'response' => ['code' => 200],
-                'body'     => json_encode([
-                    'access_token' => 'fresh_token',
-                    'expires_in'   => 3600,
-                ]),
-            ]);
+            ->twice()
+            ->andReturnUsing(function (string $url) {
+                if (str_contains($url, 'oauth2.googleapis.com/token')) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode([
+                            'access_token' => 'fresh_token',
+                            'expires_in'   => 3600,
+                        ]),
+                    ];
+                }
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode([
+                        'results' => [
+                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead']],
+                        ],
+                    ]),
+                ];
+            });
 
-        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
         Functions\expect('set_transient')->once()->andReturn(true);
 
         $success_sent = null;
@@ -290,7 +304,8 @@ describe('Settings_Page::handle_test_connection()', function () {
         $page = new Settings_Page($settings);
         $page->handle_test_connection();
 
-        expect($success_sent['message'])->toContain('successful');
+        expect($success_sent['message'])->toContain('All credentials verified');
+        expect($success_sent['message'])->toContain('Offline Lead');
     });
 
 });

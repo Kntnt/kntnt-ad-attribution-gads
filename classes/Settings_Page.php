@@ -338,21 +338,33 @@ final class Settings_Page {
 			client_secret: $settings['client_secret'],
 			refresh_token: $settings['refresh_token'],
 			login_customer_id: $settings['login_customer_id'],
+			conversion_action_id: $settings['conversion_action_id'],
 		);
 
 		$result = $client->test_connection();
 
 		if ( $result['success'] ) {
-			wp_send_json_success( [ 'message' => __( 'Connection successful! OAuth2 token refresh succeeded.', 'kntnt-ad-attr-gads' ) ] );
+			$message = ( $result['conversion_action_name'] ?? '' ) !== ''
+				? sprintf(
+					/* translators: %s: Name of the verified conversion action in Google Ads */
+					__( 'Connection successful! All credentials verified. Conversion action: %s', 'kntnt-ad-attr-gads' ),
+					$result['conversion_action_name'],
+				)
+				: __( 'Connection successful! OAuth2 token refresh succeeded.', 'kntnt-ad-attr-gads' );
+			wp_send_json_success( [ 'message' => $message ] );
 			return;
 		}
 
 		// Include masked diagnostics to aid troubleshooting.
 		$diagnostics = sprintf(
-			"\n\nDiagnostics: client_id=%s | client_secret=%s | refresh_token=%s\n\nGoogle response: %s",
+			"\n\nDiagnostics: client_id=%s | client_secret=%s | refresh_token=%s | customer_id=%s | developer_token=%s | login_customer_id=%s | conversion_action_id=%s\n\nGoogle response: %s",
 			$settings['client_id'],
 			self::mask( $settings['client_secret'] ),
 			self::mask( $settings['refresh_token'] ),
+			$settings['customer_id'],
+			self::mask( $settings['developer_token'] ),
+			$settings['login_customer_id'] ?: '(empty)',
+			$settings['conversion_action_id'],
 			$result['debug'] ?? 'N/A',
 		);
 
