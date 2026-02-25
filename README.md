@@ -182,7 +182,7 @@ The Refresh Token allows the plugin to authenticate with Google on an ongoing ba
 8. You will likely see a warning that the app is not verified. This is expected — click **Advanced** and then **Go to [your app name] (unsafe)**. This is safe; the "unverified" warning appears because your OAuth app is not publicly published, which is fine for private use.
 9. Grant the requested permissions.
 10. You are redirected back to the Playground. In Step 2 ("Exchange authorization code for tokens"), click **Exchange authorization code for tokens**.
-11. The response panel will show a JSON object. Copy the value of **`refresh_token`** (a long string starting with `1//`).
+11. Copy the **Refresh token** shown in the left panel (a long string starting with `1//`).
 
 #### Step 8: Enter Credentials in WordPress
 
