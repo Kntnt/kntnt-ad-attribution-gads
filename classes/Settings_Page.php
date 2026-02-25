@@ -349,10 +349,13 @@ final class Settings_Page {
 
 		// TODO: Remove debug details after troubleshooting.
 		$debug = sprintf(
-			"\n\nDebug: client_id=%s… client_secret=%s… refresh_token=%s…",
+			"\n\nDebug: client_id=%s… (len %d) | client_secret=%s… (len %d) | refresh_token=%s… (len %d)",
 			substr( $settings['client_id'], 0, 15 ),
+			strlen( $settings['client_id'] ),
 			substr( $settings['client_secret'], 0, 10 ),
+			strlen( $settings['client_secret'] ),
 			substr( $settings['refresh_token'], 0, 10 ),
+			strlen( $settings['refresh_token'] ),
 		);
 
 		wp_send_json_error( [ 'message' => $result['error'] . $debug ] );
