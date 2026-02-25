@@ -347,7 +347,15 @@ final class Settings_Page {
 			return;
 		}
 
-		wp_send_json_error( [ 'message' => $result['error'] ] );
+		// TODO: Remove debug details after troubleshooting.
+		$debug = sprintf(
+			"\n\nDebug: client_id=%s… client_secret=%s… refresh_token=%s…",
+			substr( $settings['client_id'], 0, 15 ),
+			substr( $settings['client_secret'], 0, 10 ),
+			substr( $settings['refresh_token'], 0, 10 ),
+		);
+
+		wp_send_json_error( [ 'message' => $result['error'] . $debug ] );
 	}
 
 	/**
