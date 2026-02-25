@@ -79,6 +79,16 @@ final class Google_Ads_Client {
 	 */
 	private string $last_refresh_error = '';
 
+	/**
+	 * Raw debug info from the last token refresh attempt.
+	 *
+	 * TODO: Remove after troubleshooting.
+	 *
+	 * @var string
+	 * @since 1.1.5
+	 */
+	private string $last_refresh_debug = '';
+
 	public function __construct(
 		private readonly string $customer_id,
 		private readonly string $developer_token,
@@ -101,10 +111,10 @@ final class Google_Ads_Client {
 		$token = $this->refresh_access_token();
 
 		if ( $token === null ) {
-			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true ];
+			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'debug' => $this->last_refresh_debug ];
 		}
 
-		return [ 'success' => true, 'error' => '', 'credential_error' => false ];
+		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'debug' => '' ];
 	}
 
 	/**
@@ -204,6 +214,7 @@ final class Google_Ads_Client {
 	private function refresh_access_token(): ?string {
 
 		$this->last_refresh_error = '';
+		$this->last_refresh_debug = '';
 
 		// Request a new access token from Google.
 		$request_body = [
@@ -213,22 +224,19 @@ final class Google_Ads_Client {
 			'refresh_token' => $this->refresh_token,
 		];
 
-		// TODO: Remove debug logging after troubleshooting.
-		error_log( 'Kntnt Ad Attribution Gads DEBUG: Token refresh request — client_id=' . substr( $this->client_id, 0, 15 ) . '… client_secret=' . substr( $this->client_secret, 0, 10 ) . '… refresh_token=' . substr( $this->refresh_token, 0, 10 ) . '…' );
-
 		$response = wp_remote_post( self::TOKEN_URL, [ 'body' => $request_body ] );
 
 		// Handle WP_Error.
 		if ( is_wp_error( $response ) ) {
 			$this->last_refresh_error = $response->get_error_message();
-			error_log( 'Kntnt Ad Attribution Gads DEBUG: Token refresh WP_Error — ' . $this->last_refresh_error );
+			$this->last_refresh_debug = 'WP_Error: ' . $this->last_refresh_error;
 			return null;
 		}
 
 		// Parse the token response.
 		$raw_body = wp_remote_retrieve_body( $response );
 		$http_code = wp_remote_retrieve_response_code( $response );
-		error_log( 'Kntnt Ad Attribution Gads DEBUG: Token refresh response — HTTP ' . $http_code . ' — ' . $raw_body );
+		$this->last_refresh_debug = "HTTP {$http_code}: {$raw_body}";
 
 		$body = json_decode( $raw_body, true );
 		if ( empty( $body['access_token'] ) || empty( $body['expires_in'] ) ) {
