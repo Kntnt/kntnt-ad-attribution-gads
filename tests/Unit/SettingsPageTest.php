@@ -457,6 +457,7 @@ describe('Settings_Page::enqueue_scripts()', function () {
         Functions\when('wp_localize_script')->justReturn(true);
         Functions\when('rest_url')->justReturn('http://example.com/wp-json/kntnt-ad-attr-gads/v1');
         Functions\when('wp_create_nonce')->justReturn('test_nonce');
+        \Patchwork\redefine('Kntnt\Ad_Attribution_Gads\Plugin::get_version', fn () => '1.6.0');
 
         $page->enqueue_scripts('settings_page_kntnt-ad-attr-gads');
         expect($enqueued)->toBeTrue();

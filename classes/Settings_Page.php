@@ -447,7 +447,7 @@ final class Settings_Page {
 			'kntnt-ad-attr-gads-settings',
 			plugins_url( 'js/settings-page.js', dirname( __FILE__ ) ),
 			[],
-			false,
+			Plugin::get_version(),
 			true,
 		);
 
