@@ -35,7 +35,7 @@ The plugin creates no custom tables, CPTs, cron hooks, or cookies. It registers 
 
 ### Settings Page
 
-Navigate to **Settings > Google Ads Attribution** to configure the plugin. The page has four sections:
+Navigate to **Settings > Google Ads Attribution** to configure the plugin. The page has three sections:
 
 **API Credentials** — required for conversion reporting:
 - Manager Account ID (MCC, 10 digits, dashes are stripped automatically)
@@ -53,9 +53,7 @@ Navigate to **Settings > Google Ads Attribution** to configure the plugin. The p
 - Default Conversion Value (numeric, >= 0)
 - Currency Code (ISO 4217 select dropdown, default: SEK)
 
-**Diagnostic Log:**
-- Enable Logging checkbox
-- Download Log / Clear Log buttons
+Diagnostic logging is handled by the core plugin's shared Logger (configure under **Settings > Ad Attribution**).
 
 The **Test Connection** button verifies all credentials using the current form values — you can test before saving. A single **Save Changes** button at the bottom saves all settings.
 
@@ -338,14 +336,15 @@ Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHu
 2. `Migrator` — database migration runner
 3. `Gclid_Capturer` — registers `gclid` parameter on the click-ID capture filter
 4. `Settings` — reads/writes plugin settings option
-5. `Settings_Page` — admin settings page under Settings > Google Ads Attribution
-6. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
+5. Core `Logger` — retrieved from `Kntnt\Ad_Attribution\Plugin::get_instance()->logger`
+6. `Settings_Page` — admin settings page under Settings > Google Ads Attribution
+7. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
 
 **Lifecycle:**
 
 | Event | What happens |
 |-------|-------------|
-| Activation | Runs `Migrator` (no migrations yet) |
+| Activation | Runs `Migrator` (no migrations yet). |
 | Deactivation | Clears transients with prefix `kntnt_ad_attr_gads_`. Preserves options. |
 | Uninstallation | Deletes `kntnt_ad_attr_gads_version` option, `kntnt_ad_attr_gads_settings` option, and all transients. |
 
@@ -369,7 +368,7 @@ kntnt-ad-attribution-gads/
 │   ├── Migrator.php                   ← Database migration runner (version-based)
 │   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
-│   ├── Settings_Page.php             ← Admin settings page (Settings > Google Ads Attribution)
+│   ├── Settings_Page.php             ← Admin settings page (3 sections: credentials, action, defaults)
 │   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 ├── js/
@@ -389,7 +388,7 @@ kntnt-ad-attribution-gads/
         ├── UpdaterTest.php            ← GitHub update checker tests
         ├── GclidCapturerTest.php      ← Gclid capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
-        ├── SettingsPageTest.php       ← Settings page sanitization tests
+        ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
         ├── BootstrapSafetyTest.php    ← Try-catch safety wrapper tests
         ├── GoogleAdsClientTest.php    ← API client token/upload/OAuth2 tests
         └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
