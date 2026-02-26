@@ -111,7 +111,7 @@ final class Google_Ads_Client {
 	 * to verify customer_id, developer_token, login_customer_id, and
 	 * conversion_action_id in a single GAQL request.
 	 *
-	 * @return array{success: bool, error: string, credential_error: bool, debug: string, conversion_action_name: string} Result with success flag, error message, credential error flag, debug info, and conversion action name.
+	 * @return array{success: bool, error: string, credential_error: bool, debug: string, conversion_action_name: string, conversion_action_category: string} Result with success flag, error message, credential error flag, debug info, conversion action name, and category.
 	 * @since 0.4.0
 	 */
 	public function test_connection(): array {
@@ -122,7 +122,7 @@ final class Google_Ads_Client {
 
 		if ( $token === null ) {
 			$this->logger?->error( "Test connection — phase 1 failed: {$this->last_refresh_error}" );
-			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'debug' => $this->last_refresh_debug, 'conversion_action_name' => '' ];
+			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'debug' => $this->last_refresh_debug, 'conversion_action_name' => '', 'conversion_action_category' => '' ];
 		}
 
 		$this->logger?->info( 'Test connection — phase 1 passed: token refresh successful' );
@@ -139,7 +139,7 @@ final class Google_Ads_Client {
 			return $result;
 		}
 
-		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '' ];
+		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '', 'conversion_action_category' => '' ];
 	}
 
 	/**
@@ -220,6 +220,190 @@ final class Google_Ads_Client {
 	}
 
 	/**
+	 * Creates a new conversion action in Google Ads via the REST API.
+	 *
+	 * Checks for duplicate names before creating. On success, returns the
+	 * newly created conversion action's numeric ID.
+	 *
+	 * @param string $name          Human-readable name for the conversion action.
+	 * @param float  $default_value Default conversion value.
+	 * @param string $currency_code ISO 4217 currency code.
+	 * @param string $category      ConversionActionCategory enum value.
+	 *
+	 * @return array{success: bool, error: string, credential_error: bool, conversion_action_id: string} Result with success flag, error message, credential error flag, and new conversion action ID.
+	 * @since 1.5.0
+	 */
+	public function create_conversion_action(
+		string $name,
+		float $default_value,
+		string $currency_code,
+		string $category = 'SUBMIT_LEAD_FORM',
+	): array {
+
+		$fail = static fn( string $error, bool $credential_error = false ): array => [
+			'success'              => false,
+			'error'                => $error,
+			'credential_error'     => $credential_error,
+			'conversion_action_id' => '',
+		];
+
+		// Obtain a valid access token.
+		$this->logger?->info( "Creating conversion action — name: {$name}, category: {$category}, value: {$default_value} {$currency_code}" );
+		$access_token = $this->get_access_token();
+		if ( $access_token === null ) {
+			$this->logger?->error( 'Create conversion action failed — ' . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
+			return $fail( $this->last_refresh_error ?: 'Failed to obtain access token.', true );
+		}
+
+		// Check for duplicate name.
+		$existing = $this->find_conversion_action_by_name( $access_token, $name );
+		if ( $existing !== null ) {
+			$this->logger?->error( "Create conversion action failed — name '{$name}' already exists with ID {$existing['id']}" );
+			return $fail( sprintf( 'A conversion action named "%s" already exists (ID: %s).', $name, $existing['id'] ) );
+		}
+
+		// Build the create payload.
+		$body = [
+			'operations' => [
+				[
+					'create' => [
+						'name'          => $name,
+						'type'          => 'UPLOAD_CLICKS',
+						'category'      => $category,
+						'status'        => 'ENABLED',
+						'valueSettings' => [
+							'defaultValue'          => $default_value,
+							'alwaysUseDefaultValue' => true,
+							'defaultCurrencyCode'   => $currency_code,
+						],
+					],
+				],
+			],
+		];
+
+		// Send the mutate request.
+		$url      = self::API_BASE_URL . "/customers/{$this->customer_id}/conversionActions:mutate";
+		$response = wp_remote_post( $url, [
+			'headers' => $this->build_api_headers( $access_token ),
+			'body'    => wp_json_encode( $body ),
+			'timeout' => 30,
+		] );
+
+		// Handle WP_Error (network failure, timeout, etc.).
+		if ( is_wp_error( $response ) ) {
+			$this->logger?->error( "Create conversion action failed — {$response->get_error_message()}" );
+			return $fail( $response->get_error_message() );
+		}
+
+		// Check HTTP status.
+		$status_code = wp_remote_retrieve_response_code( $response );
+		$raw_body    = wp_remote_retrieve_body( $response );
+
+		if ( $status_code !== 200 ) {
+			$decoded = json_decode( $raw_body, true );
+			$error   = $decoded['error']['message'] ?? "HTTP {$status_code}: {$raw_body}";
+			$this->logger?->error( "Create conversion action failed — {$error}" );
+			return $fail( $error, true );
+		}
+
+		// Parse the resource name to extract the numeric ID.
+		$decoded       = json_decode( $raw_body, true );
+		$resource_name = $decoded['results'][0]['resourceName'] ?? '';
+
+		if ( $resource_name === '' || ! preg_match( '/conversionActions\/(\d+)$/', $resource_name, $matches ) ) {
+			$this->logger?->error( "Create conversion action failed — unexpected response: {$raw_body}" );
+			return $fail( 'Unexpected response: could not extract conversion action ID.' );
+		}
+
+		$action_id = $matches[1];
+		$this->logger?->info( "Conversion action created — name: {$name}, ID: {$action_id}" );
+
+		return [
+			'success'              => true,
+			'error'                => '',
+			'credential_error'     => false,
+			'conversion_action_id' => $action_id,
+		];
+	}
+
+	/**
+	 * Fetches conversion action details (name and category) by ID.
+	 *
+	 * Uses the cached access token. Returns name and category for the given
+	 * conversion action ID so the settings page can display them.
+	 *
+	 * @param string $conversion_action_id Numeric conversion action ID.
+	 *
+	 * @return array{success: bool, error: string, conversion_action_name: string, conversion_action_category: string} Result with name and category on success.
+	 * @since 1.6.0
+	 */
+	public function fetch_conversion_action_details( string $conversion_action_id ): array {
+
+		$fail = static fn( string $error ): array => [
+			'success'                    => false,
+			'error'                      => $error,
+			'conversion_action_name'     => '',
+			'conversion_action_category' => '',
+		];
+
+		// Obtain a valid access token.
+		$this->logger?->info( "Fetching conversion action details — ID: {$conversion_action_id}" );
+		$access_token = $this->get_access_token();
+		if ( $access_token === null ) {
+			$this->logger?->error( 'Fetch conversion action failed — ' . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
+			return $fail( $this->last_refresh_error ?: 'Failed to obtain access token.' );
+		}
+
+		// Query the conversion action by ID.
+		$query = "SELECT conversion_action.id, conversion_action.name, conversion_action.category FROM conversion_action WHERE conversion_action.id = {$conversion_action_id}";
+		$url   = self::API_BASE_URL . "/customers/{$this->customer_id}/googleAds:search";
+
+		$response = wp_remote_post( $url, [
+			'headers' => $this->build_api_headers( $access_token ),
+			'body'    => wp_json_encode( [ 'query' => $query ] ),
+			'timeout' => 30,
+		] );
+
+		// Handle WP_Error.
+		if ( is_wp_error( $response ) ) {
+			$this->logger?->error( "Fetch conversion action failed — {$response->get_error_message()}" );
+			return $fail( $response->get_error_message() );
+		}
+
+		// Check HTTP status.
+		$status_code = wp_remote_retrieve_response_code( $response );
+		$raw_body    = wp_remote_retrieve_body( $response );
+
+		if ( $status_code !== 200 ) {
+			$body  = json_decode( $raw_body, true );
+			$error = $body['error']['message'] ?? "HTTP {$status_code}: {$raw_body}";
+			$this->logger?->error( "Fetch conversion action failed — {$error}" );
+			return $fail( $error );
+		}
+
+		// Check for results.
+		$body = json_decode( $raw_body, true );
+		if ( empty( $body['results'] ) ) {
+			$this->logger?->error( "Fetch conversion action failed — ID {$conversion_action_id} not found" );
+			return $fail( sprintf( 'Conversion action %s not found.', $conversion_action_id ) );
+		}
+
+		// Extract name and category.
+		$action   = $body['results'][0]['conversionAction'] ?? [];
+		$name     = $action['name'] ?? '';
+		$category = $action['category'] ?? '';
+
+		$this->logger?->info( "Conversion action fetched — name: {$name}, category: {$category}" );
+
+		return [
+			'success'                    => true,
+			'error'                      => '',
+			'conversion_action_name'     => $name,
+			'conversion_action_category' => $category,
+		];
+	}
+
+	/**
 	 * Verifies Google Ads API access by querying for the conversion action.
 	 *
 	 * Sends a GAQL query to validate customer_id, developer_token,
@@ -227,13 +411,13 @@ final class Google_Ads_Client {
 	 *
 	 * @param string $access_token Valid OAuth2 access token.
 	 *
-	 * @return array{success: bool, error: string, credential_error: bool, debug: string, conversion_action_name: string} Result with success flag, error message, credential error flag, debug info, and conversion action name.
+	 * @return array{success: bool, error: string, credential_error: bool, debug: string, conversion_action_name: string, conversion_action_category: string} Result with success flag, error message, credential error flag, debug info, conversion action name, and category.
 	 * @since 1.3.0
 	 */
 	private function verify_google_ads_access( string $access_token ): array {
 
 		// Query the conversion action by ID to validate all remaining credentials.
-		$query = "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.id = {$this->conversion_action_id}";
+		$query = "SELECT conversion_action.id, conversion_action.name, conversion_action.category FROM conversion_action WHERE conversion_action.id = {$this->conversion_action_id}";
 		$url   = self::API_BASE_URL . "/customers/{$this->customer_id}/googleAds:search";
 
 		$response = wp_remote_post( $url, [
@@ -244,7 +428,7 @@ final class Google_Ads_Client {
 
 		// Handle WP_Error (network failure, timeout, etc.).
 		if ( is_wp_error( $response ) ) {
-			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '' ];
+			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '', 'conversion_action_category' => '' ];
 		}
 
 		$status_code = wp_remote_retrieve_response_code( $response );
@@ -254,24 +438,72 @@ final class Google_Ads_Client {
 		// Non-200 means invalid developer_token, customer_id, or login_customer_id.
 		if ( $status_code !== 200 ) {
 			$error = $body['error']['message'] ?? "HTTP {$status_code}: {$raw_body}";
-			return [ 'success' => false, 'error' => $error, 'credential_error' => true, 'debug' => "HTTP {$status_code}: {$raw_body}", 'conversion_action_name' => '' ];
+			return [ 'success' => false, 'error' => $error, 'credential_error' => true, 'debug' => "HTTP {$status_code}: {$raw_body}", 'conversion_action_name' => '', 'conversion_action_category' => '' ];
 		}
 
 		// HTTP 200 but no results means the conversion action ID doesn't exist.
 		if ( empty( $body['results'] ) ) {
 			return [
-				'success'                => false,
-				'error'                  => sprintf( 'Conversion action %s not found in Google Ads account %s.', $this->conversion_action_id, $this->customer_id ),
-				'credential_error'       => true,
-				'debug'                  => "HTTP 200: {$raw_body}",
-				'conversion_action_name' => '',
+				'success'                    => false,
+				'error'                      => sprintf( 'Conversion action %s not found in Google Ads account %s.', $this->conversion_action_id, $this->customer_id ),
+				'credential_error'           => true,
+				'debug'                      => "HTTP 200: {$raw_body}",
+				'conversion_action_name'     => '',
+				'conversion_action_category' => '',
 			];
 		}
 
-		// All credentials verified — extract the conversion action name.
-		$name = $body['results'][0]['conversionAction']['name'] ?? '';
+		// All credentials verified — extract the conversion action details.
+		$action   = $body['results'][0]['conversionAction'] ?? [];
+		$name     = $action['name'] ?? '';
+		$category = $action['category'] ?? '';
 
-		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => $name ];
+		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => $name, 'conversion_action_category' => $category ];
+	}
+
+	/**
+	 * Finds a conversion action by name via a GAQL query.
+	 *
+	 * @param string $access_token Valid OAuth2 access token.
+	 * @param string $name         Conversion action name to search for.
+	 *
+	 * @return array{id: string, name: string}|null Match or null if not found.
+	 * @since 1.5.0
+	 */
+	private function find_conversion_action_by_name( string $access_token, string $name ): ?array {
+
+		// Escape single quotes in the name for safe GAQL embedding.
+		$escaped = str_replace( "'", "\\'", $name );
+		$query   = "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.name = '{$escaped}'";
+		$url     = self::API_BASE_URL . "/customers/{$this->customer_id}/googleAds:search";
+
+		$response = wp_remote_post( $url, [
+			'headers' => $this->build_api_headers( $access_token ),
+			'body'    => wp_json_encode( [ 'query' => $query ] ),
+			'timeout' => 30,
+		] );
+
+		// Treat any failure as "not found" — the caller will attempt creation.
+		if ( is_wp_error( $response ) ) {
+			return null;
+		}
+
+		$status_code = wp_remote_retrieve_response_code( $response );
+		if ( $status_code !== 200 ) {
+			return null;
+		}
+
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( empty( $body['results'] ) ) {
+			return null;
+		}
+
+		$action = $body['results'][0]['conversionAction'] ?? [];
+
+		return [
+			'id'   => (string) ( $action['id'] ?? '' ),
+			'name' => $action['name'] ?? '',
+		];
 	}
 
 	/**

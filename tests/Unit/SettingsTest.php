@@ -190,17 +190,18 @@ describe('Settings::update()', function () {
         $settings = new Settings();
         $settings->update(['customer_id' => '1234567890']);
 
-        // All 10 DEFAULTS keys must be present in the persisted array.
+        // All 12 DEFAULTS keys must be present in the persisted array.
         $expected_keys = [
-            'customer_id', 'conversion_action_id', 'developer_token',
-            'client_id', 'client_secret', 'refresh_token',
+            'customer_id', 'conversion_action_id',
+            'conversion_action_name', 'conversion_action_category',
+            'developer_token', 'client_id', 'client_secret', 'refresh_token',
             'login_customer_id', 'conversion_value', 'currency_code',
             'enable_logging',
         ];
         foreach ($expected_keys as $key) {
             expect($saved)->toHaveKey($key);
         }
-        expect($saved)->toHaveCount(10);
+        expect($saved)->toHaveCount(12);
     });
 
 });

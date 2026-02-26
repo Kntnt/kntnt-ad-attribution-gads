@@ -107,13 +107,41 @@ describe('Settings_Page::sanitize_settings()', function () {
         expect($result)->toBeEmpty();
     });
 
+    it('preserves disabled fields from database when conversion_action_id is set', function () {
+        $this->settings->shouldReceive('get_all')->once()->andReturn([
+            'conversion_action_name'     => 'Offline Lead',
+            'conversion_action_category' => 'SUBMIT_LEAD_FORM',
+        ]);
+
+        // Browser doesn't submit disabled fields, so they're missing from input.
+        $result = $this->page->sanitize_settings([
+            'conversion_action_id' => '42',
+            'customer_id'          => '1234567890',
+        ]);
+
+        expect($result['conversion_action_name'])->toBe('Offline Lead');
+        expect($result['conversion_action_category'])->toBe('SUBMIT_LEAD_FORM');
+    });
+
+    it('does not preserve disabled fields when conversion_action_id is empty', function () {
+        // No get_all() call expected when ID is empty.
+        $result = $this->page->sanitize_settings([
+            'conversion_action_id'       => '',
+            'conversion_action_name'     => 'My Action',
+            'conversion_action_category' => 'PURCHASE',
+        ]);
+
+        expect($result['conversion_action_name'])->toBe('My Action');
+        expect($result['conversion_action_category'])->toBe('PURCHASE');
+    });
+
 });
 
 // ─── Constructor hook registration ───
 
 describe('Settings_Page constructor', function () {
 
-    it('registers admin hooks and AJAX handler when is_admin is true', function () {
+    it('registers admin hooks and REST API init when is_admin is true', function () {
         $hooks = [];
 
         Functions\when('is_admin')->justReturn(true);
@@ -128,12 +156,16 @@ describe('Settings_Page constructor', function () {
         expect($hooks)->toContain('admin_init');
         expect($hooks)->toContain('admin_notices');
         expect($hooks)->toContain('admin_enqueue_scripts');
-        expect($hooks)->toContain('wp_ajax_kntnt_ad_attr_gads_test_connection');
+        expect($hooks)->toContain('rest_api_init');
         expect($hooks)->toContain('admin_post_kntnt_ad_attr_gads_download_log');
         expect($hooks)->toContain('admin_post_kntnt_ad_attr_gads_clear_log');
+
+        // AJAX hooks should no longer be registered.
+        expect($hooks)->not->toContain('wp_ajax_kntnt_ad_attr_gads_test_connection');
+        expect($hooks)->not->toContain('wp_ajax_kntnt_ad_attr_gads_create_conversion_action');
     });
 
-    it('does not register hooks when is_admin is false', function () {
+    it('registers only rest_api_init when is_admin is false', function () {
         $hooks = [];
 
         Functions\when('is_admin')->justReturn(false);
@@ -144,7 +176,12 @@ describe('Settings_Page constructor', function () {
         $settings = Mockery::mock(Settings::class);
         new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
-        expect($hooks)->toBeEmpty();
+        // REST routes are always registered (outside is_admin check).
+        expect($hooks)->toContain('rest_api_init');
+
+        // Admin-only hooks should not be registered.
+        expect($hooks)->not->toContain('admin_menu');
+        expect($hooks)->not->toContain('admin_init');
     });
 
 });
@@ -192,10 +229,10 @@ describe('Settings_Page::register_settings()', function () {
                 return $option === 'kntnt_ad_attr_gads_settings';
             });
 
-        // Stub the remaining Settings API calls made by register_settings().
-        // 8 credential fields + 2 conversion fields + 2 log fields = 12 total.
-        Functions\expect('add_settings_section')->times(3);
-        Functions\expect('add_settings_field')->times(12);
+        // 4 sections: API Credentials, Conversion Action, Conversion Defaults, Diagnostic Log.
+        // 14 fields: 6 API creds + 4 conversion action + 2 conversion defaults + 2 log.
+        Functions\expect('add_settings_section')->times(4);
+        Functions\expect('add_settings_field')->times(14);
 
         $settings = Mockery::mock(Settings::class);
         $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
@@ -206,60 +243,53 @@ describe('Settings_Page::register_settings()', function () {
 
 });
 
-// ─── handle_test_connection() ───
+// ─── handle_test_connection() via REST ───
 
 describe('Settings_Page::handle_test_connection()', function () {
 
-    it('returns error when not configured', function () {
+    it('returns error when required credentials are missing', function () {
         Functions\when('is_admin')->justReturn(false);
-        Functions\expect('check_ajax_referer')
-            ->once()
-            ->with('kntnt_ad_attr_gads_test_connection', 'nonce');
-        Functions\expect('current_user_can')
-            ->once()
-            ->with('manage_options')
-            ->andReturn(true);
+        Functions\when('sanitize_text_field')->returnArg();
+        Functions\when('wp_unslash')->returnArg();
+
+        $request = Mockery::mock('WP_REST_Request');
+        $request->shouldReceive('get_params')->andReturn([
+            'customer_id'     => '',
+            'developer_token' => 'dev_token',
+            'client_id'       => 'client.apps.googleusercontent.com',
+            'client_secret'   => 'secret',
+            'refresh_token'   => 'refresh_abc',
+        ]);
+        $request->shouldReceive('get_param')->andReturn('');
 
         $settings = Mockery::mock(Settings::class);
-        $settings->shouldReceive('is_configured')->once()->andReturn(false);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
-        $error_sent = null;
-        Functions\expect('wp_send_json_error')
-            ->once()
-            ->withArgs(function (array $data) use (&$error_sent) {
-                $error_sent = $data;
-                return true;
-            });
+        $response = $page->handle_test_connection($request);
 
-        $page = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
-        $page->handle_test_connection();
-
-        expect($error_sent['message'])->toContain('required credentials');
+        expect($response)->toBeInstanceOf(\WP_REST_Response::class);
+        expect($response->get_status())->toBe(400);
+        expect($response->get_data()['success'])->toBeFalse();
+        expect($response->get_data()['message'])->toContain('required');
     });
 
     it('returns success on successful token refresh and GAQL verification', function () {
         Functions\when('is_admin')->justReturn(false);
-        Functions\expect('check_ajax_referer')
-            ->once()
-            ->with('kntnt_ad_attr_gads_test_connection', 'nonce');
-        Functions\expect('current_user_can')
-            ->once()
-            ->with('manage_options')
-            ->andReturn(true);
+        Functions\when('sanitize_text_field')->returnArg();
+        Functions\when('wp_unslash')->returnArg();
 
-        $settings = Mockery::mock(Settings::class);
-        $settings->shouldReceive('is_configured')->once()->andReturn(true);
-        $settings->shouldReceive('get_all')->once()->andReturn([
-            'customer_id'          => '1234567890',
-            'conversion_action_id' => '99',
-            'developer_token'      => 'dev_token',
-            'client_id'            => 'client.apps.googleusercontent.com',
-            'client_secret'        => 'secret',
-            'refresh_token'        => 'refresh_abc',
-            'login_customer_id'    => '',
-            'conversion_value'     => '1000',
-            'currency_code'        => 'SEK',
+        $request = Mockery::mock('WP_REST_Request');
+        $request->shouldReceive('get_params')->andReturn([
+            'customer_id'       => '1234567890',
+            'developer_token'   => 'dev_token',
+            'client_id'         => 'client.apps.googleusercontent.com',
+            'client_secret'     => 'secret',
+            'refresh_token'     => 'refresh_abc',
+            'login_customer_id' => '',
         ]);
+        $request->shouldReceive('get_param')
+            ->with('conversion_action_id')
+            ->andReturn('99');
 
         // Stub response helpers.
         Functions\when('wp_remote_retrieve_response_code')->alias(
@@ -287,7 +317,7 @@ describe('Settings_Page::handle_test_connection()', function () {
                     'response' => ['code' => 200],
                     'body'     => json_encode([
                         'results' => [
-                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead']],
+                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead', 'category' => 'SUBMIT_LEAD_FORM']],
                         ],
                     ]),
                 ];
@@ -296,19 +326,105 @@ describe('Settings_Page::handle_test_connection()', function () {
         Functions\expect('is_wp_error')->twice()->andReturn(false);
         Functions\expect('set_transient')->once()->andReturn(true);
 
-        $success_sent = null;
-        Functions\expect('wp_send_json_success')
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+
+        $response = $page->handle_test_connection($request);
+
+        expect($response)->toBeInstanceOf(\WP_REST_Response::class);
+        expect($response->get_data()['success'])->toBeTrue();
+        expect($response->get_data()['message'])->toContain('All credentials verified');
+        expect($response->get_data()['message'])->toContain('Offline Lead');
+    });
+
+});
+
+// ─── handle_fetch_conversion_action() via REST ───
+
+describe('Settings_Page::handle_fetch_conversion_action()', function () {
+
+    it('returns name and category for a valid conversion action ID', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\when('sanitize_text_field')->returnArg();
+        Functions\when('wp_unslash')->returnArg();
+
+        $request = Mockery::mock('WP_REST_Request');
+        $request->shouldReceive('get_params')->andReturn([
+            'customer_id'       => '1234567890',
+            'developer_token'   => 'dev_token',
+            'client_id'         => 'client.apps.googleusercontent.com',
+            'client_secret'     => 'secret',
+            'refresh_token'     => 'refresh_abc',
+            'login_customer_id' => '',
+        ]);
+        $request->shouldReceive('get_param')
+            ->with('conversion_action_id')
+            ->andReturn('42');
+
+        // Stub response helpers.
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+
+        Functions\expect('get_transient')
             ->once()
-            ->withArgs(function (array $data) use (&$success_sent) {
-                $success_sent = $data;
-                return true;
-            });
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
 
-        $page = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
-        $page->handle_test_connection();
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'results' => [
+                        ['conversionAction' => ['id' => '42', 'name' => 'Offline Lead', 'category' => 'SUBMIT_LEAD_FORM']],
+                    ],
+                ]),
+            ]);
 
-        expect($success_sent['message'])->toContain('All credentials verified');
-        expect($success_sent['message'])->toContain('Offline Lead');
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+
+        $response = $page->handle_fetch_conversion_action($request);
+
+        expect($response)->toBeInstanceOf(\WP_REST_Response::class);
+        expect($response->get_data()['success'])->toBeTrue();
+        expect($response->get_data()['conversion_action_name'])->toBe('Offline Lead');
+        expect($response->get_data()['conversion_action_category'])->toBe('SUBMIT_LEAD_FORM');
+    });
+
+    it('returns error when conversion_action_id is empty', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\when('sanitize_text_field')->returnArg();
+        Functions\when('wp_unslash')->returnArg();
+
+        $request = Mockery::mock('WP_REST_Request');
+        $request->shouldReceive('get_params')->andReturn([
+            'customer_id'       => '1234567890',
+            'developer_token'   => 'dev_token',
+            'client_id'         => 'client.apps.googleusercontent.com',
+            'client_secret'     => 'secret',
+            'refresh_token'     => 'refresh_abc',
+            'login_customer_id' => '',
+        ]);
+        $request->shouldReceive('get_param')
+            ->with('conversion_action_id')
+            ->andReturn('');
+
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+
+        $response = $page->handle_fetch_conversion_action($request);
+
+        expect($response)->toBeInstanceOf(\WP_REST_Response::class);
+        expect($response->get_status())->toBe(400);
+        expect($response->get_data()['success'])->toBeFalse();
     });
 
 });
@@ -339,7 +455,7 @@ describe('Settings_Page::enqueue_scripts()', function () {
         // Should enqueue on the correct page.
         Functions\when('plugins_url')->justReturn('http://example.com/js/settings-page.js');
         Functions\when('wp_localize_script')->justReturn(true);
-        Functions\when('admin_url')->justReturn('http://example.com/wp-admin/admin-ajax.php');
+        Functions\when('rest_url')->justReturn('http://example.com/wp-json/kntnt-ad-attr-gads/v1');
         Functions\when('wp_create_nonce')->justReturn('test_nonce');
 
         $page->enqueue_scripts('settings_page_kntnt-ad-attr-gads');

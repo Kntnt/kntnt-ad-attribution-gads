@@ -20,7 +20,7 @@ The plugin uses two adapter hooks provided by the core plugin:
 
 2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed to a hash that has a stored `gclid`, a payload is built and queued for asynchronous processing. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
 
-The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookies. It relies entirely on the core plugin's infrastructure.
+The plugin creates no custom tables, CPTs, cron hooks, or cookies. It registers three REST API endpoints for settings page operations (test connection, create conversion action, fetch conversion action details). It relies on the core plugin's infrastructure for click-ID storage and conversion queuing.
 
 ### Features
 
@@ -28,24 +28,36 @@ The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookie
 - Queues and uploads conversions to Google Ads via the Offline Conversion Upload API.
 - Resilient queuing — conversions are always queued regardless of credential status. Missing credentials are filled in from current settings when the job is processed.
 - Failed jobs are automatically reset when settings are updated with valid credentials.
-- **Test Connection** button verifies all credentials — OAuth2 tokens, Customer ID, Developer Token, Login Customer ID, and Conversion Action ID — in a single click.
+- **Test Connection** button verifies all credentials — OAuth2 tokens, Customer ID, Developer Token, Login Customer ID, and Conversion Action ID — in a single click. Uses current form values, so you can test before saving.
+- **Create Conversion Action** button creates a new conversion action in Google Ads directly from the settings page. The ID is filled in automatically on success.
+- Auto-fetches conversion action name and category from Google Ads when an ID is present.
 - Persistent admin notice warns when uploads fail due to missing or invalid credentials.
 
 ### Settings Page
 
-Navigate to **Settings > Google Ads Attribution** to configure the plugin. The page has two sections:
+Navigate to **Settings > Google Ads Attribution** to configure the plugin. The page has four sections:
 
 **API Credentials** — required for conversion reporting:
+- Manager Account ID (MCC, 10 digits, dashes are stripped automatically)
 - Customer ID (10 digits, dashes are stripped automatically)
-- Conversion Action ID
 - Developer Token
 - OAuth2 Client ID, Client Secret, and Refresh Token
-- Login Customer ID (MCC)
-- **Test Connection** button — verifies all credentials (OAuth2 tokens, Customer ID, Developer Token, Login Customer ID, and Conversion Action ID) in a single click
+
+**Conversion Action** — configure or create the conversion action:
+- Conversion Action ID (numeric)
+- Conversion Action Name (auto-fetched from Google Ads when ID is set, or enter a name for a new action)
+- Conversion Action Category (auto-fetched from Google Ads when ID is set, or select for a new action)
+- **Create Conversion Action** button — creates a new action in Google Ads. Enabled when auth fields + name are filled and no ID exists. The ID is filled in automatically on success.
 
 **Conversion Defaults:**
 - Default Conversion Value (numeric, >= 0)
 - Currency Code (ISO 4217 select dropdown, default: SEK)
+
+**Diagnostic Log:**
+- Enable Logging checkbox
+- Download Log / Clear Log buttons
+
+The **Test Connection** button verifies all credentials using the current form values — you can test before saving. A single **Save Changes** button at the bottom saves all settings.
 
 ### Limitations
 
@@ -128,6 +140,17 @@ If you don't already have one, you will create it in the steps below. It is free
 
 #### Step 3: Get the Conversion Action ID
 
+You can either create a conversion action from the plugin's settings page or manually in Google Ads.
+
+**Option A: Create from the plugin settings page (recommended)**
+
+1. Complete Steps 1–2 and 4–7 first (you need API credentials).
+2. In the plugin's settings page, go to the **Conversion Action** section.
+3. Enter a name (e.g. "Offline Lead") and select a category.
+4. Click **Create Conversion Action**. The ID is filled in automatically.
+
+**Option B: Create manually in Google Ads**
+
 1. In Google Ads, go to [Goals > Conversions](https://ads.google.com/aw/conversions).
 2. If you already have a conversion action of type **Import > from clicks** (e.g. one used for offline conversion imports from Matomo or another source), you can reuse it. Otherwise, create a new one:
    - Click **+ New conversion action**.
@@ -195,19 +218,20 @@ The Refresh Token allows the plugin to authenticate with Google on an ongoing ba
 
 #### Step 8: Enter Credentials in WordPress
 
-Go to **Settings > Google Ads Attribution** and fill in:
+Go to **Settings > Google Ads Attribution** and fill in the **API Credentials** section:
 
 | Field | Value | Where to find it |
 | --- | --- | --- |
+| Manager Account ID | Your Manager Account (MCC) ID (10 digits) | Top-right corner of your [manager account](https://ads.google.com) |
 | Customer ID | Your Google Ads account ID (10 digits) | Top-right corner of the [Google Ads dashboard](https://ads.google.com) |
-| Conversion Action ID | Numeric ID of the conversion action | Step 3 above |
 | Developer Token | 22-character alphanumeric string | Step 2 above (API Center in your manager account) |
 | OAuth2 Client ID | Long string ending in `.apps.googleusercontent.com` | Step 6 above |
 | OAuth2 Client Secret | String starting with `GOCSPX-` | Step 6 above |
 | OAuth2 Refresh Token | Long string starting with `1//` | Step 7 above |
-| Login Customer ID (MCC) | Your Manager Account ID (10 digits) | Top-right corner of your [manager account](https://ads.google.com) |
 
-> **Note:** A Manager Account (MCC) is required to obtain a Developer Token. When authenticating through an MCC, the Login Customer ID must be provided. Therefore all fields above are required.
+In the **Conversion Action** section, enter the Conversion Action ID from Step 3 (or create one using the **Create Conversion Action** button). The name and category are fetched automatically from Google Ads when an ID is present.
+
+> **Note:** A Manager Account (MCC) is required to obtain a Developer Token. When authenticating through an MCC, the Manager Account ID must be provided. Therefore all API credential fields are required.
 
 #### Conversion Defaults
 
@@ -218,14 +242,16 @@ At the bottom of the settings page:
 
 #### Test Connection
 
-Click the **Test Connection** button on the settings page. It performs a two-phase verification:
+Click the **Test Connection** button at the bottom of the settings page. It uses the current form values (not saved settings) and performs a two-phase verification:
 
 1. **OAuth2 verification** — forces a fresh token refresh to validate your Client ID, Client Secret, and Refresh Token.
-2. **Google Ads API verification** — queries the Google Ads API to validate your Customer ID, Developer Token, Login Customer ID, and Conversion Action ID.
+2. **Google Ads API verification** — queries the Google Ads API to validate your Customer ID, Developer Token, Manager Account ID, and Conversion Action ID.
 
 A success message confirms that all credentials are valid and displays the name of the verified conversion action. An error message indicates which credential or setting is invalid, along with masked diagnostics to aid troubleshooting.
 
-#### Login Customer ID (MCC)
+The Test Connection button is disabled until all required auth fields are filled.
+
+#### Manager Account ID (MCC)
 
 Enter the 10-digit Customer ID of your **Manager Account (MCC)**. You can find it in the top-right corner of the [Google Ads Manager Account](https://ads.google.com) interface. A Manager Account is required because the Developer Token is only available through the API Center in a Manager Account.
 
@@ -340,7 +366,7 @@ kntnt-ad-attribution-gads/
 │   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 ├── js/
-│   └── settings-page.js              ← Test connection button AJAX handler
+│   └── settings-page.js              ← Settings page dynamic UI and REST API calls
 ├── languages/
 │   └── kntnt-ad-attr-gads.pot        ← Translation template
 └── tests/

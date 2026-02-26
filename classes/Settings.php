@@ -38,16 +38,18 @@ final class Settings {
 	 * @since 0.2.0
 	 */
 	private const DEFAULTS = [
-		'customer_id'          => '',
-		'conversion_action_id' => '',
-		'developer_token'      => '',
-		'client_id'            => '',
-		'client_secret'        => '',
-		'refresh_token'        => '',
-		'login_customer_id'    => '',
-		'conversion_value'     => '0',
-		'currency_code'        => 'SEK',
-		'enable_logging'       => '',
+		'customer_id'                 => '',
+		'conversion_action_id'        => '',
+		'conversion_action_name'      => '',
+		'conversion_action_category'  => 'SUBMIT_LEAD_FORM',
+		'developer_token'             => '',
+		'client_id'                   => '',
+		'client_secret'               => '',
+		'refresh_token'               => '',
+		'login_customer_id'           => '',
+		'conversion_value'            => '0',
+		'currency_code'               => 'SEK',
+		'enable_logging'              => '',
 	];
 
 	/**

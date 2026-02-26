@@ -75,7 +75,7 @@ describe('Google_Ads_Client::test_connection()', function () {
         $client = make_client();
         $result = $client->test_connection();
 
-        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '']);
+        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false, 'debug' => '', 'conversion_action_name' => '', 'conversion_action_category' => '']);
     });
 
     it('sends correct OAuth2 parameters in token refresh request', function () {
@@ -243,7 +243,7 @@ describe('Google_Ads_Client::test_connection() phase 2', function () {
                     'response' => ['code' => 200],
                     'body'     => json_encode([
                         'results' => [
-                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead']],
+                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead', 'category' => 'SUBMIT_LEAD_FORM']],
                         ],
                     ]),
                 ];
@@ -256,6 +256,7 @@ describe('Google_Ads_Client::test_connection() phase 2', function () {
 
         expect($result['success'])->toBeTrue();
         expect($result['conversion_action_name'])->toBe('Offline Lead');
+        expect($result['conversion_action_category'])->toBe('SUBMIT_LEAD_FORM');
     });
 
     it('sends correct GAQL request URL, headers, and body', function () {
@@ -289,7 +290,7 @@ describe('Google_Ads_Client::test_connection() phase 2', function () {
                     'response' => ['code' => 200],
                     'body'     => json_encode([
                         'results' => [
-                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead']],
+                            ['conversionAction' => ['id' => '99', 'name' => 'Offline Lead', 'category' => 'SUBMIT_LEAD_FORM']],
                         ],
                     ]),
                 ];
@@ -309,8 +310,9 @@ describe('Google_Ads_Client::test_connection() phase 2', function () {
         expect($captured_headers['login-customer-id'])->toBe('5555555555');
         expect($captured_headers['Content-Type'])->toBe('application/json');
 
-        // Verify GAQL query in body.
+        // Verify GAQL query includes category.
         expect($captured_body['query'])->toContain('conversion_action.id = 99');
+        expect($captured_body['query'])->toContain('conversion_action.category');
     });
 
     it('returns credential error on HTTP 403 from Google Ads API', function () {
@@ -446,7 +448,7 @@ describe('Google_Ads_Client::test_connection() phase 2', function () {
                     'response' => ['code' => 200],
                     'body'     => json_encode([
                         'results' => [
-                            ['conversionAction' => ['id' => '99', 'name' => 'Lead']],
+                            ['conversionAction' => ['id' => '99', 'name' => 'Lead', 'category' => 'DEFAULT']],
                         ],
                     ]),
                 ];
@@ -1035,6 +1037,465 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         );
 
         expect($result['success'])->toBeTrue();
+    });
+
+});
+
+// ─── create_conversion_action() ───
+
+describe('Google_Ads_Client::create_conversion_action()', function () {
+
+    /**
+     * Stubs a cached access token so no token refresh is needed.
+     */
+    function stub_cached_token(): void {
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+    }
+
+    it('creates a conversion action successfully when name does not exist', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        // First call: find_conversion_action_by_name (no results).
+        // Second call: mutate (success with resource name).
+        $call_count = 0;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url) use (&$call_count) {
+                $call_count++;
+                if ($call_count === 1) {
+                    // GAQL search — no matching conversion action.
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode(['results' => []]),
+                    ];
+                }
+                // Mutate — success.
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode([
+                        'results' => [
+                            ['resourceName' => 'customers/1234567890/conversionActions/42'],
+                        ],
+                    ]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->create_conversion_action('Test Lead', 100.0, 'SEK');
+
+        expect($result['success'])->toBeTrue();
+        expect($result['conversion_action_id'])->toBe('42');
+        expect($result['error'])->toBe('');
+    });
+
+    it('returns error when conversion action name already exists', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        // GAQL search returns an existing action.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'results' => [
+                        ['conversionAction' => ['id' => '77', 'name' => 'Test Lead']],
+                    ],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->create_conversion_action('Test Lead', 100.0, 'SEK');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toContain('already exists');
+        expect($result['error'])->toContain('77');
+    });
+
+    it('sends correct mutate request payload', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        $captured_url  = null;
+        $captured_body = null;
+
+        $call_count = 0;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url, array $args) use (&$call_count, &$captured_url, &$captured_body) {
+                $call_count++;
+                if ($call_count === 1) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode(['results' => []]),
+                    ];
+                }
+                $captured_url  = $url;
+                $captured_body = json_decode($args['body'], true);
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode([
+                        'results' => [
+                            ['resourceName' => 'customers/1234567890/conversionActions/55'],
+                        ],
+                    ]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client();
+        $client->create_conversion_action('My Lead', 250.0, 'EUR', 'IMPORTED_LEAD');
+
+        // Verify endpoint URL.
+        expect($captured_url)->toBe('https://googleads.googleapis.com/v23/customers/1234567890/conversionActions:mutate');
+
+        // Verify payload structure.
+        $create = $captured_body['operations'][0]['create'];
+        expect($create['name'])->toBe('My Lead');
+        expect($create['type'])->toBe('UPLOAD_CLICKS');
+        expect($create['category'])->toBe('IMPORTED_LEAD');
+        expect($create['status'])->toBe('ENABLED');
+        expect((float) $create['valueSettings']['defaultValue'])->toBe(250.0);
+        expect($create['valueSettings']['alwaysUseDefaultValue'])->toBeTrue();
+        expect($create['valueSettings']['defaultCurrencyCode'])->toBe('EUR');
+    });
+
+    it('returns credential error on token refresh failure', function () {
+        // No cached token.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn(false);
+
+        stub_response_helpers();
+
+        // Token refresh fails.
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'error'             => 'invalid_grant',
+                    'error_description' => 'Token has been expired or revoked.',
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->create_conversion_action('Test', 0.0, 'SEK');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['credential_error'])->toBeTrue();
+        expect($result['error'])->toBe('Token has been expired or revoked.');
+    });
+
+    it('returns error on HTTP 403 from mutate request', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        $call_count = 0;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function () use (&$call_count) {
+                $call_count++;
+                if ($call_count === 1) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode(['results' => []]),
+                    ];
+                }
+                return [
+                    'response' => ['code' => 403],
+                    'body'     => json_encode([
+                        'error' => ['message' => 'The developer token is not approved.'],
+                    ]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->create_conversion_action('Test', 0.0, 'SEK');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['credential_error'])->toBeTrue();
+        expect($result['error'])->toContain('developer token');
+    });
+
+    it('returns error on WP_Error from mutate request', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        $wp_error = Mockery::mock('WP_Error');
+        $wp_error->shouldReceive('get_error_message')
+            ->once()
+            ->andReturn('Connection timed out');
+
+        $call_count = 0;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function () use (&$call_count, $wp_error) {
+                $call_count++;
+                if ($call_count === 1) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode(['results' => []]),
+                    ];
+                }
+                return $wp_error;
+            });
+
+        Functions\expect('is_wp_error')
+            ->twice()
+            ->andReturnUsing(fn ($response) => $response === $wp_error);
+
+        $client = make_client();
+        $result = $client->create_conversion_action('Test', 0.0, 'SEK');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Connection timed out');
+    });
+
+    it('returns error when resource name is missing from response', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        $call_count = 0;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function () use (&$call_count) {
+                $call_count++;
+                if ($call_count === 1) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode(['results' => []]),
+                    ];
+                }
+                // Malformed response — no resourceName.
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode(['results' => [['somethingElse' => true]]]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->create_conversion_action('Test', 0.0, 'SEK');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toContain('could not extract');
+    });
+
+    it('uses default SUBMIT_LEAD_FORM category when not specified', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        $captured_body = null;
+        $call_count = 0;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url, array $args) use (&$call_count, &$captured_body) {
+                $call_count++;
+                if ($call_count === 1) {
+                    return [
+                        'response' => ['code' => 200],
+                        'body'     => json_encode(['results' => []]),
+                    ];
+                }
+                $captured_body = json_decode($args['body'], true);
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode([
+                        'results' => [
+                            ['resourceName' => 'customers/1234567890/conversionActions/10'],
+                        ],
+                    ]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        $client = make_client();
+        $client->create_conversion_action('Default Category', 0.0, 'SEK');
+
+        expect($captured_body['operations'][0]['create']['category'])->toBe('SUBMIT_LEAD_FORM');
+    });
+
+});
+
+// ─── fetch_conversion_action_details() ───
+
+describe('Google_Ads_Client::fetch_conversion_action_details()', function () {
+
+    it('fetches name and category successfully', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'results' => [
+                        ['conversionAction' => ['id' => '42', 'name' => 'Offline Lead', 'category' => 'SUBMIT_LEAD_FORM']],
+                    ],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->fetch_conversion_action_details('42');
+
+        expect($result['success'])->toBeTrue();
+        expect($result['conversion_action_name'])->toBe('Offline Lead');
+        expect($result['conversion_action_category'])->toBe('SUBMIT_LEAD_FORM');
+    });
+
+    it('returns error on token refresh failure', function () {
+        // No cached token.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn(false);
+
+        stub_response_helpers();
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'error'             => 'invalid_grant',
+                    'error_description' => 'Token has been expired or revoked.',
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->fetch_conversion_action_details('42');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Token has been expired or revoked.');
+        expect($result['conversion_action_name'])->toBe('');
+        expect($result['conversion_action_category'])->toBe('');
+    });
+
+    it('returns error when conversion action is not found', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['results' => []]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->fetch_conversion_action_details('999');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toContain('999');
+        expect($result['error'])->toContain('not found');
+    });
+
+    it('returns error on HTTP 403', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 403],
+                'body'     => json_encode([
+                    'error' => ['message' => 'The developer token is not approved.'],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->fetch_conversion_action_details('42');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toContain('developer token');
+    });
+
+    it('returns error on WP_Error', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+
+        $wp_error = Mockery::mock('WP_Error');
+        $wp_error->shouldReceive('get_error_message')
+            ->once()
+            ->andReturn('Connection timed out');
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn($wp_error);
+
+        Functions\expect('is_wp_error')->once()->andReturn(true);
+
+        $client = make_client();
+        $result = $client->fetch_conversion_action_details('42');
+
+        expect($result['success'])->toBeFalse();
+        expect($result['error'])->toBe('Connection timed out');
+    });
+
+    it('sends GAQL query with category field', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        $captured_body = null;
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->withArgs(function (string $url, array $args) use (&$captured_body) {
+                $captured_body = json_decode($args['body'], true);
+                return true;
+            })
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'results' => [
+                        ['conversionAction' => ['id' => '42', 'name' => 'Lead', 'category' => 'DEFAULT']],
+                    ],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $client->fetch_conversion_action_details('42');
+
+        expect($captured_body['query'])->toContain('conversion_action.category');
+        expect($captured_body['query'])->toContain('conversion_action.id = 42');
     });
 
 });

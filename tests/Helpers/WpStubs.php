@@ -39,6 +39,58 @@ if (!defined('HOUR_IN_SECONDS')) {
 
 // ─── WordPress helper function stubs ───
 
+// ─── WordPress REST API stubs ───
+
+if (!class_exists('WP_REST_Response')) {
+    /**
+     * Minimal WP_REST_Response stub for unit tests.
+     */
+    class WP_REST_Response {
+        /** @var mixed */
+        protected mixed $data;
+        /** @var int */
+        protected int $status;
+
+        public function __construct(mixed $data = null, int $status = 200) {
+            $this->data   = $data;
+            $this->status = $status;
+        }
+
+        public function get_data(): mixed {
+            return $this->data;
+        }
+
+        public function get_status(): int {
+            return $this->status;
+        }
+    }
+}
+
+if (!class_exists('WP_REST_Request')) {
+    /**
+     * Minimal WP_REST_Request stub for unit tests.
+     */
+    class WP_REST_Request {
+        /** @var array<string,mixed> */
+        protected array $params = [];
+
+        public function get_params(): array {
+            return $this->params;
+        }
+
+        public function get_param(string $key): mixed {
+            return $this->params[$key] ?? null;
+        }
+
+        /** @param array<string,mixed> $params */
+        public function set_params(array $params): void {
+            $this->params = $params;
+        }
+    }
+}
+
+// ─── WordPress helper function stubs ───
+
 if (!function_exists('wp_parse_args')) {
     /**
      * @param array<string,mixed>|string $args     Arguments.
