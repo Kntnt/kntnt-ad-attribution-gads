@@ -532,6 +532,65 @@ describe('Conversion_Reporter::process()', function () {
         expect($result)->toBeTrue();
     });
 
+    it('uses current settings conversion_action_id over payload value', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(array_merge(
+            default_settings(),
+            ['conversion_action_id' => '200'],
+        ));
+
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        // Verify the upload uses the NEW action ID from settings, not the old payload one.
+        $uploaded_body = null;
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->withArgs(function (string $url, array $args) use (&$uploaded_body) {
+                $uploaded_body = json_decode($args['body'], true);
+                return str_contains($url, 'customers/1234567890:uploadClickConversions');
+            })
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode(['results' => [[]]]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+        Functions\when('delete_transient')->justReturn(true);
+
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_old_action',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
+        ]);
+
+        expect($result)->toBeTrue();
+
+        // Payload had action ID 99, but settings now has 200 — settings must win.
+        $action = $uploaded_body['conversions'][0]['conversionAction'];
+        expect($action)->toBe('customers/1234567890/conversionActions/200');
+    });
+
     it('uploads zero value when attribution fraction is zero', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());

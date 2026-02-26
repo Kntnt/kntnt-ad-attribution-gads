@@ -136,8 +136,11 @@ final class Conversion_Reporter {
 		$settings = $this->settings->get_all();
 
 		// Merge: prefer payload snapshot, fall back to current settings.
+		// Exception: conversion_action_id prefers current settings because
+		// changing the action ID is intentional (e.g. replacing a misconfigured
+		// action), and old queued jobs must follow the new configuration.
 		$customer_id          = $payload['customer_id'] ?: $settings['customer_id'];
-		$conversion_action_id = $payload['conversion_action_id'] ?: $settings['conversion_action_id'];
+		$conversion_action_id = $settings['conversion_action_id'] ?: $payload['conversion_action_id'];
 		$conversion_value     = $payload['conversion_value'] ?: $settings['conversion_value'];
 		$currency_code        = $payload['currency_code'] ?: $settings['currency_code'];
 		$developer_token      = $payload['developer_token'] ?: $settings['developer_token'];
