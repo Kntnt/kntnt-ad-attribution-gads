@@ -19,6 +19,7 @@ declare( strict_types = 1 );
 namespace Kntnt\Ad_Attribution_Gads;
 
 use DateTimeImmutable;
+use Kntnt\Ad_Attribution\Logger;
 
 /**
  * Hooks into the core plugin's conversion reporting system.
@@ -39,7 +40,7 @@ final class Conversion_Reporter {
 	 * Creates the reporter with Settings and Logger dependencies.
 	 *
 	 * @param Settings $settings Plugin settings instance.
-	 * @param Logger   $logger   Diagnostic logger instance.
+	 * @param Logger   $logger   Core diagnostic logger instance.
 	 *
 	 * @since 0.3.0
 	 */
@@ -86,7 +87,7 @@ final class Conversion_Reporter {
 	 */
 	public function enqueue( array $attributions, array $click_ids, array $campaigns, array $context ): array {
 		$settings = $this->settings->get_all();
-		$payloads = [];
+		$items    = [];
 
 		// Format timestamp for Google Ads (RFC 3339 with offset).
 		$datetime = ( new DateTimeImmutable( $context['timestamp'] ) )->format( 'Y-m-d H:i:sP' );
@@ -99,24 +100,31 @@ final class Conversion_Reporter {
 			}
 
 			// Snapshot raw values; derived values are computed in process().
-			$this->logger->info( "Enqueued — gclid: {$click_ids[ $hash ]['google_ads']}, datetime: {$datetime}, fraction: {$fraction}" );
-			$payloads[] = [
-				'gclid'                => $click_ids[ $hash ]['google_ads'],
-				'conversion_datetime'  => $datetime,
-				'attribution_fraction' => $fraction,
-				'customer_id'          => $settings['customer_id'],
-				'conversion_action_id' => $settings['conversion_action_id'],
-				'conversion_value'     => $settings['conversion_value'],
-				'currency_code'        => $settings['currency_code'],
-				'developer_token'      => $settings['developer_token'],
-				'client_id'            => $settings['client_id'],
-				'client_secret'        => $settings['client_secret'],
-				'refresh_token'        => $settings['refresh_token'],
-				'login_customer_id'    => $settings['login_customer_id'],
+			$gclid              = $click_ids[ $hash ]['google_ads'];
+			$conversion_action_id = $settings['conversion_action_id'];
+
+			$this->logger->info( 'GADS', "Enqueued — gclid: {$gclid}, datetime: {$datetime}, fraction: {$fraction}" );
+
+			$items[] = [
+				'payload' => [
+					'gclid'                => $gclid,
+					'conversion_datetime'  => $datetime,
+					'attribution_fraction' => $fraction,
+					'customer_id'          => $settings['customer_id'],
+					'conversion_action_id' => $conversion_action_id,
+					'conversion_value'     => $settings['conversion_value'],
+					'currency_code'        => $settings['currency_code'],
+					'developer_token'      => $settings['developer_token'],
+					'client_id'            => $settings['client_id'],
+					'client_secret'        => $settings['client_secret'],
+					'refresh_token'        => $settings['refresh_token'],
+					'login_customer_id'    => $settings['login_customer_id'],
+				],
+				'label' => sprintf( 'gclid %s → action %s', substr( $gclid, 0, 12 ) . '…', $conversion_action_id ),
 			];
 		}
 
-		return $payloads;
+		return $items;
 	}
 
 	/**
@@ -152,13 +160,13 @@ final class Conversion_Reporter {
 		// Abort if required credentials are still missing after merge.
 		if ( ! $customer_id || ! $conversion_action_id || ! $developer_token || ! $client_id || ! $client_secret || ! $refresh_token ) {
 			set_transient( self::CREDENTIAL_ERROR_TRANSIENT, 'missing', 0 );
-			$this->logger->error( "Aborted — gclid: {$payload['gclid']}, missing credentials" );
+			$this->logger->error( 'GADS', "Aborted — gclid: {$payload['gclid']}, missing credentials" );
 			error_log( "Kntnt Ad Attribution Gads: Cannot process gclid {$payload['gclid']} — required credentials still missing." );
 			return false;
 		}
 
 		// Log processing start with diagnostic context.
-		$this->logger->info( "Processing — gclid: {$payload['gclid']}, customer: {$customer_id}, action_id: {$conversion_action_id}" );
+		$this->logger->info( 'GADS', "Processing — gclid: {$payload['gclid']}, customer: {$customer_id}, action_id: {$conversion_action_id}" );
 
 		// Compute derived values from merged raw data.
 		$conversion_action = "customers/{$customer_id}/conversionActions/{$conversion_action_id}";

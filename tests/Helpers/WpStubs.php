@@ -89,6 +89,23 @@ if (!class_exists('WP_REST_Request')) {
     }
 }
 
+// ─── Core plugin class stubs ───
+// The core plugin is not loaded during GADS unit tests. Provide minimal
+// stubs so type hints and Mockery mocks resolve correctly.
+
+if (!class_exists('Kntnt\\Ad_Attribution\\Logger')) {
+    eval('namespace Kntnt\\Ad_Attribution; class Logger {
+        public static function mask(string $value): string {
+            if ($value === "") { return ""; }
+            $len = strlen($value);
+            if ($len <= 4) { return str_repeat("*", $len); }
+            return str_repeat("*", $len - 4) . substr($value, -4);
+        }
+        public function info(string $prefix, string $message): void {}
+        public function error(string $prefix, string $message): void {}
+    }');
+}
+
 // ─── WordPress helper function stubs ───
 
 if (!function_exists('wp_parse_args')) {

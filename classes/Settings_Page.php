@@ -69,36 +69,12 @@ final class Settings_Page {
 	private const SECTION_CONVERSION_DEFAULTS = 'kntnt_ad_attr_gads_conversion_defaults';
 
 	/**
-	 * Section ID for diagnostic log fields.
-	 *
-	 * @var string
-	 * @since 1.4.0
-	 */
-	private const SECTION_LOG = 'kntnt_ad_attr_gads_log';
-
-	/**
 	 * REST API namespace for plugin endpoints.
 	 *
 	 * @var string
 	 * @since 1.6.0
 	 */
 	private const REST_NAMESPACE = 'kntnt-ad-attr-gads/v1';
-
-	/**
-	 * Admin post action for downloading the log file.
-	 *
-	 * @var string
-	 * @since 1.4.0
-	 */
-	private const ACTION_DOWNLOAD_LOG = 'kntnt_ad_attr_gads_download_log';
-
-	/**
-	 * Admin post action for clearing the log file.
-	 *
-	 * @var string
-	 * @since 1.4.0
-	 */
-	private const ACTION_CLEAR_LOG = 'kntnt_ad_attr_gads_clear_log';
 
 	/**
 	 * Google Ads ConversionActionCategory enum values.
@@ -154,14 +130,6 @@ final class Settings_Page {
 	private readonly Settings $settings;
 
 	/**
-	 * Logger instance for diagnostic log management.
-	 *
-	 * @var Logger
-	 * @since 1.4.0
-	 */
-	private readonly Logger $logger;
-
-	/**
 	 * Hook suffix returned by add_options_page(), used for script enqueuing.
 	 *
 	 * @var string|null
@@ -173,13 +141,11 @@ final class Settings_Page {
 	 * Constructs the settings page and registers admin hooks.
 	 *
 	 * @param Settings $settings Settings instance for data access.
-	 * @param Logger   $logger   Logger instance for log management.
 	 *
 	 * @since 0.2.0
 	 */
-	public function __construct( Settings $settings, Logger $logger ) {
+	public function __construct( Settings $settings ) {
 		$this->settings = $settings;
-		$this->logger   = $logger;
 
 		// Register hooks only in admin context.
 		if ( is_admin() ) {
@@ -187,8 +153,6 @@ final class Settings_Page {
 			add_action( 'admin_init', [ $this, 'register_settings' ] );
 			add_action( 'admin_notices', [ $this, 'display_credential_notice' ] );
 			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_scripts' ] );
-			add_action( 'admin_post_' . self::ACTION_DOWNLOAD_LOG, [ $this, 'handle_download_log' ] );
-			add_action( 'admin_post_' . self::ACTION_CLEAR_LOG, [ $this, 'handle_clear_log' ] );
 		}
 
 		// REST routes are registered outside is_admin() — REST API runs outside admin context.
@@ -333,22 +297,10 @@ final class Settings_Page {
 			self::PAGE_SLUG,
 		);
 
-		// Diagnostic Log section.
-		add_settings_section(
-			self::SECTION_LOG,
-			__( 'Diagnostic Log', 'kntnt-ad-attr-gads' ),
-			fn() => printf(
-				'<p>%s</p>',
-				esc_html__( 'Log Google Ads API communication for troubleshooting.', 'kntnt-ad-attr-gads' ),
-			),
-			self::PAGE_SLUG,
-		);
-
 		// Register individual fields.
 		$this->add_api_credential_fields();
 		$this->add_conversion_action_fields();
 		$this->add_conversion_default_fields();
-		$this->add_log_fields();
 	}
 
 	/**
@@ -419,7 +371,6 @@ final class Settings_Page {
 				$this->render_section( self::SECTION_API_CREDENTIALS );
 				$this->render_section( self::SECTION_CONVERSION_ACTION );
 				$this->render_section( self::SECTION_CONVERSION_DEFAULTS );
-				$this->render_section( self::SECTION_LOG );
 				$this->render_test_connection_button();
 				submit_button();
 				?>
@@ -493,7 +444,7 @@ final class Settings_Page {
 			refresh_token: $credentials['refresh_token'],
 			login_customer_id: $credentials['login_customer_id'],
 			conversion_action_id: $conversion_action_id,
-			logger: $this->logger,
+			logger: \Kntnt\Ad_Attribution\Plugin::get_instance()->logger,
 		);
 
 		$result = $client->test_connection();
@@ -574,7 +525,7 @@ final class Settings_Page {
 			client_secret: $credentials['client_secret'],
 			refresh_token: $credentials['refresh_token'],
 			login_customer_id: $credentials['login_customer_id'],
-			logger: $this->logger,
+			logger: \Kntnt\Ad_Attribution\Plugin::get_instance()->logger,
 		);
 
 		$result = $client->create_conversion_action(
@@ -648,7 +599,7 @@ final class Settings_Page {
 			client_secret: $credentials['client_secret'],
 			refresh_token: $credentials['refresh_token'],
 			login_customer_id: $credentials['login_customer_id'],
-			logger: $this->logger,
+			logger: \Kntnt\Ad_Attribution\Plugin::get_instance()->logger,
 		);
 
 		$result = $client->fetch_conversion_action_details( $conversion_action_id );
@@ -1030,145 +981,6 @@ final class Settings_Page {
 			);
 		}
 		echo '</select>';
-	}
-
-	/**
-	 * Registers diagnostic log fields.
-	 *
-	 * @return void
-	 * @since 1.4.0
-	 */
-	private function add_log_fields(): void {
-
-		// Enable logging checkbox.
-		add_settings_field(
-			'enable_logging',
-			__( 'Enable Logging', 'kntnt-ad-attr-gads' ),
-			[ $this, 'render_log_checkbox_field' ],
-			self::PAGE_SLUG,
-			self::SECTION_LOG,
-			[ 'label_for' => 'enable_logging' ],
-		);
-
-		// Download and clear buttons (not form fields).
-		add_settings_field(
-			'log_actions',
-			__( 'Log File', 'kntnt-ad-attr-gads' ),
-			[ $this, 'render_log_actions_field' ],
-			self::PAGE_SLUG,
-			self::SECTION_LOG,
-		);
-	}
-
-	/**
-	 * Renders the enable logging checkbox.
-	 *
-	 * @return void
-	 * @since 1.4.0
-	 */
-	public function render_log_checkbox_field(): void {
-		$enabled = (bool) $this->settings->get( 'enable_logging' );
-		printf(
-			'<label><input type="checkbox" id="enable_logging" name="%s[enable_logging]" value="1"%s> %s</label>',
-			esc_attr( Settings::OPTION_KEY ),
-			checked( $enabled, true, false ),
-			sprintf(
-				/* translators: %s: Relative path to the log file */
-				esc_html__( 'Write diagnostic log to %s', 'kntnt-ad-attr-gads' ),
-				'<code>' . esc_html( $this->logger->get_relative_path() ) . '</code>',
-			),
-		);
-	}
-
-	/**
-	 * Renders the log download and clear action buttons.
-	 *
-	 * @return void
-	 * @since 1.4.0
-	 */
-	public function render_log_actions_field(): void {
-		$exists = $this->logger->exists();
-		$path   = $this->logger->get_path();
-
-		// Show file size when the log exists.
-		if ( $exists ) {
-			printf(
-				'<p class="description">%s</p>',
-				sprintf(
-					/* translators: %s: Human-readable file size */
-					esc_html__( 'Current size: %s', 'kntnt-ad-attr-gads' ),
-					esc_html( size_format( (int) filesize( $path ) ) ),
-				),
-			);
-		}
-
-		// Download button.
-		printf(
-			'<a href="%s" class="button button-secondary"%s>%s</a> ',
-			esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . self::ACTION_DOWNLOAD_LOG ), self::ACTION_DOWNLOAD_LOG ) ),
-			$exists ? '' : ' disabled aria-disabled="true" style="pointer-events:none;opacity:.5"',
-			esc_html__( 'Download Log', 'kntnt-ad-attr-gads' ),
-		);
-
-		// Clear button.
-		printf(
-			'<a href="%s" class="button button-secondary"%s>%s</a>',
-			esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . self::ACTION_CLEAR_LOG ), self::ACTION_CLEAR_LOG ) ),
-			$exists ? '' : ' disabled aria-disabled="true" style="pointer-events:none;opacity:.5"',
-			esc_html__( 'Clear Log', 'kntnt-ad-attr-gads' ),
-		);
-	}
-
-	/**
-	 * Handles the admin post request to download the log file.
-	 *
-	 * Verifies nonce and capability, then sends the file as an attachment.
-	 *
-	 * @return void
-	 * @since 1.4.0
-	 */
-	public function handle_download_log(): void {
-		check_admin_referer( self::ACTION_DOWNLOAD_LOG );
-
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'kntnt-ad-attr-gads' ) );
-		}
-
-		if ( ! $this->logger->exists() ) {
-			wp_die( esc_html__( 'Log file does not exist.', 'kntnt-ad-attr-gads' ) );
-		}
-
-		$path = $this->logger->get_path();
-
-		// Send the file as a download.
-		nocache_headers();
-		header( 'Content-Type: text/plain' );
-		header( 'Content-Disposition: attachment; filename="' . basename( $path ) . '"' );
-		header( 'Content-Length: ' . filesize( $path ) );
-		readfile( $path );
-		exit;
-	}
-
-	/**
-	 * Handles the admin post request to clear the log file.
-	 *
-	 * Verifies nonce and capability, deletes the log, and redirects back.
-	 *
-	 * @return void
-	 * @since 1.4.0
-	 */
-	public function handle_clear_log(): void {
-		check_admin_referer( self::ACTION_CLEAR_LOG );
-
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'kntnt-ad-attr-gads' ) );
-		}
-
-		$this->logger->clear();
-
-		// Redirect back to the settings page.
-		wp_safe_redirect( admin_url( 'options-general.php?page=' . self::PAGE_SLUG ) );
-		exit;
 	}
 
 	/**

@@ -9,7 +9,7 @@
 declare(strict_types=1);
 
 use Kntnt\Ad_Attribution_Gads\Conversion_Reporter;
-use Kntnt\Ad_Attribution_Gads\Logger;
+use Kntnt\Ad_Attribution\Logger;
 use Kntnt\Ad_Attribution_Gads\Settings;
 use Brain\Monkey\Functions;
 
@@ -103,12 +103,12 @@ describe('Conversion_Reporter::enqueue()', function () {
         $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
 
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['gclid'])->toBe('gclid_abc');
-        expect($payloads[0]['attribution_fraction'])->toBe(1.0);
-        expect($payloads[0]['conversion_action_id'])->toBe('99');
-        expect($payloads[0]['conversion_value'])->toBe('1000');
-        expect($payloads[0]['currency_code'])->toBe('SEK');
-        expect($payloads[0]['customer_id'])->toBe('1234567890');
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_abc');
+        expect($payloads[0]['payload']['attribution_fraction'])->toBe(1.0);
+        expect($payloads[0]['payload']['conversion_action_id'])->toBe('99');
+        expect($payloads[0]['payload']['conversion_value'])->toBe('1000');
+        expect($payloads[0]['payload']['currency_code'])->toBe('SEK');
+        expect($payloads[0]['payload']['customer_id'])->toBe('1234567890');
     });
 
     it('skips attributions without google_ads click ID', function () {
@@ -150,10 +150,10 @@ describe('Conversion_Reporter::enqueue()', function () {
 
         // Only hash_a and hash_b have gclids.
         expect($payloads)->toHaveCount(2);
-        expect($payloads[0]['gclid'])->toBe('gclid_a');
-        expect($payloads[0]['attribution_fraction'])->toBe(0.5);
-        expect($payloads[1]['gclid'])->toBe('gclid_b');
-        expect($payloads[1]['attribution_fraction'])->toBe(0.3);
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['attribution_fraction'])->toBe(0.5);
+        expect($payloads[1]['payload']['gclid'])->toBe('gclid_b');
+        expect($payloads[1]['payload']['attribution_fraction'])->toBe(0.3);
     });
 
     it('stores attribution_fraction as raw value', function () {
@@ -170,8 +170,8 @@ describe('Conversion_Reporter::enqueue()', function () {
         $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
 
         // Raw fraction stored, not pre-computed value.
-        expect($payloads[0]['attribution_fraction'])->toBe(0.25);
-        expect($payloads[0]['conversion_value'])->toBe('1000');
+        expect($payloads[0]['payload']['attribution_fraction'])->toBe(0.25);
+        expect($payloads[0]['payload']['conversion_value'])->toBe('1000');
     });
 
     it('returns empty array when no gclids exist', function () {
@@ -240,7 +240,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
 
         // DateTimeImmutable with format 'Y-m-d H:i:sP' produces offset.
-        expect($payloads[0]['conversion_datetime'])->toMatch('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/');
+        expect($payloads[0]['payload']['conversion_datetime'])->toMatch('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/');
     });
 
     it('snapshots credentials into payload', function () {
@@ -257,14 +257,14 @@ describe('Conversion_Reporter::enqueue()', function () {
         $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
 
         // All credentials should be present for self-contained async processing.
-        expect($payloads[0])->toHaveKey('customer_id');
-        expect($payloads[0])->toHaveKey('developer_token');
-        expect($payloads[0])->toHaveKey('client_id');
-        expect($payloads[0])->toHaveKey('client_secret');
-        expect($payloads[0])->toHaveKey('refresh_token');
-        expect($payloads[0])->toHaveKey('login_customer_id');
-        expect($payloads[0]['developer_token'])->toBe('dev_token');
-        expect($payloads[0]['client_secret'])->toBe('secret');
+        expect($payloads[0]['payload'])->toHaveKey('customer_id');
+        expect($payloads[0]['payload'])->toHaveKey('developer_token');
+        expect($payloads[0]['payload'])->toHaveKey('client_id');
+        expect($payloads[0]['payload'])->toHaveKey('client_secret');
+        expect($payloads[0]['payload'])->toHaveKey('refresh_token');
+        expect($payloads[0]['payload'])->toHaveKey('login_customer_id');
+        expect($payloads[0]['payload']['developer_token'])->toBe('dev_token');
+        expect($payloads[0]['payload']['client_secret'])->toBe('secret');
     });
 
     it('works with empty settings and snapshots empty strings', function () {
@@ -282,9 +282,9 @@ describe('Conversion_Reporter::enqueue()', function () {
 
         // Payload is built even with empty credentials.
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['gclid'])->toBe('gclid_abc');
-        expect($payloads[0]['customer_id'])->toBe('');
-        expect($payloads[0]['developer_token'])->toBe('');
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_abc');
+        expect($payloads[0]['payload']['customer_id'])->toBe('');
+        expect($payloads[0]['payload']['developer_token'])->toBe('');
     });
 
 });
@@ -473,7 +473,7 @@ describe('Conversion_Reporter::process()', function () {
         Functions\when('delete_transient')->justReturn(true);
 
         // Feed enqueue output directly into process.
-        $result = $reporter->process($payloads[0]);
+        $result = $reporter->process($payloads[0]['payload']);
 
         expect($result)->toBeTrue();
     });
@@ -491,7 +491,7 @@ describe('Conversion_Reporter::process()', function () {
         $context      = ['timestamp' => '2026-01-15 10:30:00'];
 
         $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
-        expect($payloads[0]['customer_id'])->toBe('');
+        expect($payloads[0]['payload']['customer_id'])->toBe('');
 
         // Create a new reporter with filled settings for process().
         $filled = Mockery::mock(Settings::class);
@@ -527,7 +527,7 @@ describe('Conversion_Reporter::process()', function () {
         Functions\expect('is_wp_error')->once()->andReturn(false);
         Functions\when('delete_transient')->justReturn(true);
 
-        $result = $reporter2->process($payloads[0]);
+        $result = $reporter2->process($payloads[0]['payload']);
 
         expect($result)->toBeTrue();
     });

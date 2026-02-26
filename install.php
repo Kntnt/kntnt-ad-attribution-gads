@@ -19,8 +19,3 @@ if ( ! defined( 'WPINC' ) ) {
 
 // Run pending database migrations.
 ( new Migrator() )->run();
-
-// Create the diagnostic log directory with direct-access protection.
-$log_dir = wp_upload_dir()['basedir'] . '/' . Logger::DIR_NAME;
-wp_mkdir_p( $log_dir );
-file_put_contents( $log_dir . '/.htaccess', "Deny from all\n" );

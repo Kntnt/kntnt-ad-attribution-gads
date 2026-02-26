@@ -98,7 +98,7 @@ final class Google_Ads_Client {
 		private readonly string $refresh_token,
 		private readonly string $login_customer_id = '',
 		private readonly string $conversion_action_id = '',
-		private readonly ?Logger $logger = null,
+		private readonly ?\Kntnt\Ad_Attribution\Logger $logger = null,
 	) {}
 
 	/**
@@ -117,24 +117,24 @@ final class Google_Ads_Client {
 	public function test_connection(): array {
 
 		// Phase 1: Verify OAuth2 credentials via token refresh.
-		$this->logger?->info( 'Test connection — phase 1: verifying OAuth2 credentials' );
+		$this->logger?->info( 'GADS', 'Test connection — phase 1: verifying OAuth2 credentials' );
 		$token = $this->refresh_access_token();
 
 		if ( $token === null ) {
-			$this->logger?->error( "Test connection — phase 1 failed: {$this->last_refresh_error}" );
+			$this->logger?->error( 'GADS', "Test connection — phase 1 failed: {$this->last_refresh_error}" );
 			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'debug' => $this->last_refresh_debug, 'conversion_action_name' => '', 'conversion_action_category' => '' ];
 		}
 
-		$this->logger?->info( 'Test connection — phase 1 passed: token refresh successful' );
+		$this->logger?->info( 'GADS', 'Test connection — phase 1 passed: token refresh successful' );
 
 		// Phase 2: Verify Google Ads API credentials if conversion_action_id is set.
 		if ( $this->conversion_action_id !== '' ) {
-			$this->logger?->info( "Test connection — phase 2: verifying Google Ads API access for conversion action {$this->conversion_action_id}" );
+			$this->logger?->info( 'GADS', "Test connection — phase 2: verifying Google Ads API access for conversion action {$this->conversion_action_id}" );
 			$result = $this->verify_google_ads_access( $token );
 			if ( $result['success'] ) {
-				$this->logger?->info( "Test connection — phase 2 passed: conversion action '{$result['conversion_action_name']}'" );
+				$this->logger?->info( 'GADS', "Test connection — phase 2 passed: conversion action '{$result['conversion_action_name']}'" );
 			} else {
-				$this->logger?->error( "Test connection — phase 2 failed: {$result['error']}" );
+				$this->logger?->error( 'GADS', "Test connection — phase 2 failed: {$result['error']}" );
 			}
 			return $result;
 		}
@@ -163,10 +163,10 @@ final class Google_Ads_Client {
 	): array {
 
 		// Obtain a valid access token.
-		$this->logger?->info( "Uploading conversion — gclid: {$gclid}, action: {$conversion_action}, value: {$conversion_value} {$currency_code}" );
+		$this->logger?->info( 'GADS', "Uploading conversion — gclid: {$gclid}, action: {$conversion_action}, value: {$conversion_value} {$currency_code}" );
 		$access_token = $this->get_access_token();
 		if ( $access_token === null ) {
-			$this->logger?->error( "Conversion upload failed — gclid: {$gclid}, error: " . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
+			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: " . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
 			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true ];
 		}
 
@@ -194,7 +194,7 @@ final class Google_Ads_Client {
 
 		// Handle WP_Error (network failure, timeout, etc.).
 		if ( is_wp_error( $response ) ) {
-			$this->logger?->error( "Conversion upload failed — gclid: {$gclid}, error: {$response->get_error_message()}" );
+			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: {$response->get_error_message()}" );
 			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false ];
 		}
 
@@ -202,7 +202,7 @@ final class Google_Ads_Client {
 		$status_code = wp_remote_retrieve_response_code( $response );
 		if ( $status_code !== 200 ) {
 			$response_body = wp_remote_retrieve_body( $response );
-			$this->logger?->error( "Conversion upload failed — gclid: {$gclid}, error: HTTP {$status_code}: {$response_body}" );
+			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: HTTP {$status_code}: {$response_body}" );
 			return [ 'success' => false, 'error' => "HTTP {$status_code}: {$response_body}", 'credential_error' => false ];
 		}
 
@@ -210,11 +210,11 @@ final class Google_Ads_Client {
 		$response_body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( ! empty( $response_body['partialFailureError'] ) ) {
 			$error_message = $response_body['partialFailureError']['message'] ?? 'Partial failure error';
-			$this->logger?->error( "Conversion partial failure — gclid: {$gclid}, error: {$error_message}" );
+			$this->logger?->error( 'GADS', "Conversion partial failure — gclid: {$gclid}, error: {$error_message}" );
 			return [ 'success' => false, 'error' => $error_message, 'credential_error' => false ];
 		}
 
-		$this->logger?->info( "Conversion uploaded — gclid: {$gclid}" );
+		$this->logger?->info( 'GADS', "Conversion uploaded — gclid: {$gclid}" );
 
 		return [ 'success' => true, 'error' => '', 'credential_error' => false ];
 	}
@@ -248,17 +248,17 @@ final class Google_Ads_Client {
 		];
 
 		// Obtain a valid access token.
-		$this->logger?->info( "Creating conversion action — name: {$name}, category: {$category}, value: {$default_value} {$currency_code}" );
+		$this->logger?->info( 'GADS', "Creating conversion action — name: {$name}, category: {$category}, value: {$default_value} {$currency_code}" );
 		$access_token = $this->get_access_token();
 		if ( $access_token === null ) {
-			$this->logger?->error( 'Create conversion action failed — ' . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
+			$this->logger?->error( 'GADS', 'Create conversion action failed — ' . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
 			return $fail( $this->last_refresh_error ?: 'Failed to obtain access token.', true );
 		}
 
 		// Check for duplicate name.
 		$existing = $this->find_conversion_action_by_name( $access_token, $name );
 		if ( $existing !== null ) {
-			$this->logger?->error( "Create conversion action failed — name '{$name}' already exists with ID {$existing['id']}" );
+			$this->logger?->error( 'GADS', "Create conversion action failed — name '{$name}' already exists with ID {$existing['id']}" );
 			return $fail( sprintf( 'A conversion action named "%s" already exists (ID: %s).', $name, $existing['id'] ) );
 		}
 
@@ -291,7 +291,7 @@ final class Google_Ads_Client {
 
 		// Handle WP_Error (network failure, timeout, etc.).
 		if ( is_wp_error( $response ) ) {
-			$this->logger?->error( "Create conversion action failed — {$response->get_error_message()}" );
+			$this->logger?->error( 'GADS', "Create conversion action failed — {$response->get_error_message()}" );
 			return $fail( $response->get_error_message() );
 		}
 
@@ -302,7 +302,7 @@ final class Google_Ads_Client {
 		if ( $status_code !== 200 ) {
 			$decoded = json_decode( $raw_body, true );
 			$error   = $decoded['error']['message'] ?? "HTTP {$status_code}: {$raw_body}";
-			$this->logger?->error( "Create conversion action failed — {$error}" );
+			$this->logger?->error( 'GADS', "Create conversion action failed — {$error}" );
 			return $fail( $error, true );
 		}
 
@@ -311,12 +311,12 @@ final class Google_Ads_Client {
 		$resource_name = $decoded['results'][0]['resourceName'] ?? '';
 
 		if ( $resource_name === '' || ! preg_match( '/conversionActions\/(\d+)$/', $resource_name, $matches ) ) {
-			$this->logger?->error( "Create conversion action failed — unexpected response: {$raw_body}" );
+			$this->logger?->error( 'GADS', "Create conversion action failed — unexpected response: {$raw_body}" );
 			return $fail( 'Unexpected response: could not extract conversion action ID.' );
 		}
 
 		$action_id = $matches[1];
-		$this->logger?->info( "Conversion action created — name: {$name}, ID: {$action_id}" );
+		$this->logger?->info( 'GADS', "Conversion action created — name: {$name}, ID: {$action_id}" );
 
 		return [
 			'success'              => true,
@@ -347,10 +347,10 @@ final class Google_Ads_Client {
 		];
 
 		// Obtain a valid access token.
-		$this->logger?->info( "Fetching conversion action details — ID: {$conversion_action_id}" );
+		$this->logger?->info( 'GADS', "Fetching conversion action details — ID: {$conversion_action_id}" );
 		$access_token = $this->get_access_token();
 		if ( $access_token === null ) {
-			$this->logger?->error( 'Fetch conversion action failed — ' . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
+			$this->logger?->error( 'GADS', 'Fetch conversion action failed — ' . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
 			return $fail( $this->last_refresh_error ?: 'Failed to obtain access token.' );
 		}
 
@@ -366,7 +366,7 @@ final class Google_Ads_Client {
 
 		// Handle WP_Error.
 		if ( is_wp_error( $response ) ) {
-			$this->logger?->error( "Fetch conversion action failed — {$response->get_error_message()}" );
+			$this->logger?->error( 'GADS', "Fetch conversion action failed — {$response->get_error_message()}" );
 			return $fail( $response->get_error_message() );
 		}
 
@@ -377,14 +377,14 @@ final class Google_Ads_Client {
 		if ( $status_code !== 200 ) {
 			$body  = json_decode( $raw_body, true );
 			$error = $body['error']['message'] ?? "HTTP {$status_code}: {$raw_body}";
-			$this->logger?->error( "Fetch conversion action failed — {$error}" );
+			$this->logger?->error( 'GADS', "Fetch conversion action failed — {$error}" );
 			return $fail( $error );
 		}
 
 		// Check for results.
 		$body = json_decode( $raw_body, true );
 		if ( empty( $body['results'] ) ) {
-			$this->logger?->error( "Fetch conversion action failed — ID {$conversion_action_id} not found" );
+			$this->logger?->error( 'GADS', "Fetch conversion action failed — ID {$conversion_action_id} not found" );
 			return $fail( sprintf( 'Conversion action %s not found.', $conversion_action_id ) );
 		}
 
@@ -393,7 +393,7 @@ final class Google_Ads_Client {
 		$name     = $action['name'] ?? '';
 		$category = $action['category'] ?? '';
 
-		$this->logger?->info( "Conversion action fetched — name: {$name}, category: {$category}" );
+		$this->logger?->info( 'GADS', "Conversion action fetched — name: {$name}, category: {$category}" );
 
 		return [
 			'success'                    => true,
@@ -549,7 +549,7 @@ final class Google_Ads_Client {
 		if ( is_wp_error( $response ) ) {
 			$this->last_refresh_error = $response->get_error_message();
 			$this->last_refresh_debug = 'WP_Error: ' . $this->last_refresh_error;
-			$this->logger?->error( "Token refresh failed — {$this->last_refresh_error}" );
+			$this->logger?->error( 'GADS', "Token refresh failed — {$this->last_refresh_error}" );
 			return null;
 		}
 
@@ -561,7 +561,7 @@ final class Google_Ads_Client {
 		$body = json_decode( $raw_body, true );
 		if ( empty( $body['access_token'] ) || empty( $body['expires_in'] ) ) {
 			$this->last_refresh_error = $body['error_description'] ?? $body['error'] ?? 'Unexpected token response.';
-			$this->logger?->error( "Token refresh failed — {$this->last_refresh_error} (client_id: {$this->client_id}, client_secret: " . Logger::mask( $this->client_secret ) . ', refresh_token: ' . Logger::mask( $this->refresh_token ) . ')' );
+			$this->logger?->error( 'GADS', "Token refresh failed — {$this->last_refresh_error} (client_id: {$this->client_id}, client_secret: " . \Kntnt\Ad_Attribution\Logger::mask( $this->client_secret ) . ', refresh_token: ' . \Kntnt\Ad_Attribution\Logger::mask( $this->refresh_token ) . ')' );
 			return null;
 		}
 
@@ -569,7 +569,7 @@ final class Google_Ads_Client {
 		$ttl = max( 0, (int) $body['expires_in'] - self::TOKEN_TTL_MARGIN );
 		set_transient( self::TOKEN_TRANSIENT, $body['access_token'], $ttl );
 
-		$this->logger?->info( "Token refresh successful — expires_in: {$body['expires_in']}s" );
+		$this->logger?->info( 'GADS', "Token refresh successful — expires_in: {$body['expires_in']}s" );
 
 		return $body['access_token'];
 	}
