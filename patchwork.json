@@ -5,6 +5,8 @@
         "header",
         "time",
         "gmdate",
-        "exit"
+        "exit",
+        "filesize",
+        "readfile"
     ]
 }

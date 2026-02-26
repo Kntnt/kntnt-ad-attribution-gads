@@ -36,3 +36,10 @@ $wpdb->query(
 		'_transient_timeout_kntnt_ad_attr_gads_%',
 	),
 );
+
+// Remove the diagnostic log directory and its contents.
+$log_dir = wp_upload_dir()['basedir'] . '/kntnt-ad-attr-gads';
+if ( is_dir( $log_dir ) ) {
+	array_map( 'wp_delete_file', glob( $log_dir . '/*' ) );
+	rmdir( $log_dir );
+}

@@ -36,14 +36,16 @@ final class Conversion_Reporter {
 	public const CREDENTIAL_ERROR_TRANSIENT = 'kntnt_ad_attr_gads_credential_error';
 
 	/**
-	 * Creates the reporter with a Settings dependency.
+	 * Creates the reporter with Settings and Logger dependencies.
 	 *
 	 * @param Settings $settings Plugin settings instance.
+	 * @param Logger   $logger   Diagnostic logger instance.
 	 *
 	 * @since 0.3.0
 	 */
 	public function __construct(
 		private readonly Settings $settings,
+		private readonly Logger $logger,
 	) {}
 
 	/**
@@ -97,6 +99,7 @@ final class Conversion_Reporter {
 			}
 
 			// Snapshot raw values; derived values are computed in process().
+			$this->logger->info( "Enqueued — gclid: {$click_ids[ $hash ]['google_ads']}, datetime: {$datetime}, fraction: {$fraction}" );
 			$payloads[] = [
 				'gclid'                => $click_ids[ $hash ]['google_ads'],
 				'conversion_datetime'  => $datetime,
@@ -146,9 +149,13 @@ final class Conversion_Reporter {
 		// Abort if required credentials are still missing after merge.
 		if ( ! $customer_id || ! $conversion_action_id || ! $developer_token || ! $client_id || ! $client_secret || ! $refresh_token ) {
 			set_transient( self::CREDENTIAL_ERROR_TRANSIENT, 'missing', 0 );
+			$this->logger->error( "Aborted — gclid: {$payload['gclid']}, missing credentials" );
 			error_log( "Kntnt Ad Attribution Gads: Cannot process gclid {$payload['gclid']} — required credentials still missing." );
 			return false;
 		}
+
+		// Log processing start with diagnostic context.
+		$this->logger->info( "Processing — gclid: {$payload['gclid']}, customer: {$customer_id}, action_id: {$conversion_action_id}" );
 
 		// Compute derived values from merged raw data.
 		$conversion_action = "customers/{$customer_id}/conversionActions/{$conversion_action_id}";
@@ -162,6 +169,7 @@ final class Conversion_Reporter {
 			client_secret: $client_secret,
 			refresh_token: $refresh_token,
 			login_customer_id: $login_customer_id,
+			logger: $this->logger,
 		);
 
 		$result = $client->upload_click_conversion(

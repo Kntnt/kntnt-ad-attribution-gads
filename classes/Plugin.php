@@ -66,6 +66,14 @@ final class Plugin {
 	public readonly Settings $settings;
 
 	/**
+	 * Logger component instance.
+	 *
+	 * @var Logger
+	 * @since 1.4.0
+	 */
+	public readonly Logger $logger;
+
+	/**
 	 * Settings page component instance.
 	 *
 	 * @var Settings_Page
@@ -119,8 +127,9 @@ final class Plugin {
 		$this->migrator             = new Migrator();
 		$this->gclid_capturer       = new Gclid_Capturer();
 		$this->settings             = new Settings();
-		$this->settings_page        = new Settings_Page( $this->settings );
-		$this->conversion_reporter  = new Conversion_Reporter( $this->settings );
+		$this->logger               = new Logger( $this->settings );
+		$this->settings_page        = new Settings_Page( $this->settings, $this->logger );
+		$this->conversion_reporter  = new Conversion_Reporter( $this->settings, $this->logger );
 
 		// Register WordPress hooks.
 		$this->register_hooks();

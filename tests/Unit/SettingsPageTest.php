@@ -8,6 +8,7 @@
 
 declare(strict_types=1);
 
+use Kntnt\Ad_Attribution_Gads\Logger;
 use Kntnt\Ad_Attribution_Gads\Settings;
 use Kntnt\Ad_Attribution_Gads\Settings_Page;
 use Brain\Monkey\Functions;
@@ -22,7 +23,7 @@ describe('Settings_Page::sanitize_settings()', function () {
         Functions\when('is_admin')->justReturn(false);
 
         $this->settings = Mockery::mock(Settings::class);
-        $this->page     = new Settings_Page($this->settings);
+        $this->page     = new Settings_Page($this->settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
     });
 
     it('strips dashes from customer_id', function () {
@@ -121,13 +122,15 @@ describe('Settings_Page constructor', function () {
         });
 
         $settings = Mockery::mock(Settings::class);
-        new Settings_Page($settings);
+        new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         expect($hooks)->toContain('admin_menu');
         expect($hooks)->toContain('admin_init');
         expect($hooks)->toContain('admin_notices');
         expect($hooks)->toContain('admin_enqueue_scripts');
         expect($hooks)->toContain('wp_ajax_kntnt_ad_attr_gads_test_connection');
+        expect($hooks)->toContain('admin_post_kntnt_ad_attr_gads_download_log');
+        expect($hooks)->toContain('admin_post_kntnt_ad_attr_gads_clear_log');
     });
 
     it('does not register hooks when is_admin is false', function () {
@@ -139,7 +142,7 @@ describe('Settings_Page constructor', function () {
         });
 
         $settings = Mockery::mock(Settings::class);
-        new Settings_Page($settings);
+        new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         expect($hooks)->toBeEmpty();
     });
@@ -163,7 +166,7 @@ describe('Settings_Page::add_page()', function () {
         );
 
         $settings = Mockery::mock(Settings::class);
-        $page     = new Settings_Page($settings);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $page->add_page();
 
         // args: page_title, menu_title, capability, menu_slug, callback
@@ -190,12 +193,12 @@ describe('Settings_Page::register_settings()', function () {
             });
 
         // Stub the remaining Settings API calls made by register_settings().
-        // 7 credential fields + 1 test connection field = 8 in credentials section.
-        Functions\expect('add_settings_section')->twice();
-        Functions\expect('add_settings_field')->times(10);
+        // 8 credential fields + 2 conversion fields + 2 log fields = 12 total.
+        Functions\expect('add_settings_section')->times(3);
+        Functions\expect('add_settings_field')->times(12);
 
         $settings = Mockery::mock(Settings::class);
-        $page     = new Settings_Page($settings);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $page->register_settings();
 
         expect($captured_args['sanitize_callback'])->toBe([$page, 'sanitize_settings']);
@@ -228,7 +231,7 @@ describe('Settings_Page::handle_test_connection()', function () {
                 return true;
             });
 
-        $page = new Settings_Page($settings);
+        $page = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $page->handle_test_connection();
 
         expect($error_sent['message'])->toContain('required credentials');
@@ -301,7 +304,7 @@ describe('Settings_Page::handle_test_connection()', function () {
                 return true;
             });
 
-        $page = new Settings_Page($settings);
+        $page = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $page->handle_test_connection();
 
         expect($success_sent['message'])->toContain('All credentials verified');
@@ -318,7 +321,7 @@ describe('Settings_Page::enqueue_scripts()', function () {
         Functions\when('is_admin')->justReturn(false);
 
         $settings = Mockery::mock(Settings::class);
-        $page     = new Settings_Page($settings);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         // Simulate add_page() having set the page hook.
         Functions\when('add_options_page')->justReturn('settings_page_kntnt-ad-attr-gads');
@@ -364,7 +367,7 @@ describe('Settings_Page::display_credential_notice()', function () {
         Functions\when('wp_kses')->returnArg();
 
         $settings = Mockery::mock(Settings::class);
-        $page     = new Settings_Page($settings);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         ob_start();
         $page->display_credential_notice();
@@ -387,7 +390,7 @@ describe('Settings_Page::display_credential_notice()', function () {
             ->andReturn(false);
 
         $settings = Mockery::mock(Settings::class);
-        $page     = new Settings_Page($settings);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         ob_start();
         $page->display_credential_notice();
@@ -404,13 +407,192 @@ describe('Settings_Page::display_credential_notice()', function () {
             ->andReturn(false);
 
         $settings = Mockery::mock(Settings::class);
-        $page     = new Settings_Page($settings);
+        $page     = new Settings_Page($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         ob_start();
         $page->display_credential_notice();
         $output = ob_get_clean();
 
         expect($output)->toBeEmpty();
+    });
+
+});
+
+// ─── render_log_checkbox_field() ───
+
+describe('Settings_Page::render_log_checkbox_field()', function () {
+
+    it('renders checked checkbox when logging is enabled', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\when('checked')->alias(fn ($value, $current, $echo) => $value == $current ? ' checked="checked"' : '');
+
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get')->with('enable_logging')->once()->andReturn('1');
+
+        $logger = Mockery::mock(Logger::class);
+        $logger->shouldReceive('get_relative_path')->andReturn('wp-content/uploads/kntnt-ad-attr-gads/kntnt-ad-attr-gads.log');
+
+        $page = new Settings_Page($settings, $logger);
+
+        ob_start();
+        $page->render_log_checkbox_field();
+        $output = ob_get_clean();
+
+        expect($output)->toContain('type="checkbox"');
+        expect($output)->toContain('checked="checked"');
+        expect($output)->toContain('enable_logging');
+        expect($output)->toContain('kntnt-ad-attr-gads.log');
+    });
+
+    it('renders unchecked checkbox when logging is disabled', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\when('checked')->alias(fn ($value, $current, $echo) => $value == $current ? ' checked="checked"' : '');
+
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get')->with('enable_logging')->once()->andReturn('');
+
+        $logger = Mockery::mock(Logger::class);
+        $logger->shouldReceive('get_relative_path')->andReturn('wp-content/uploads/kntnt-ad-attr-gads/kntnt-ad-attr-gads.log');
+
+        $page = new Settings_Page($settings, $logger);
+
+        ob_start();
+        $page->render_log_checkbox_field();
+        $output = ob_get_clean();
+
+        expect($output)->toContain('type="checkbox"');
+        expect($output)->not->toContain('checked="checked"');
+    });
+
+});
+
+// ─── render_log_actions_field() ───
+
+describe('Settings_Page::render_log_actions_field()', function () {
+
+    it('renders enabled buttons and file size when log exists', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\when('wp_nonce_url')->returnArg();
+        Functions\when('admin_url')->returnArg();
+        Functions\when('size_format')->justReturn('1.2 KB');
+
+        \Patchwork\redefine('filesize', function () {
+            return 1234;
+        });
+
+        $settings = Mockery::mock(Settings::class);
+        $logger   = Mockery::mock(Logger::class);
+        $logger->shouldReceive('exists')->andReturn(true);
+        $logger->shouldReceive('get_path')->andReturn('/tmp/kntnt-ad-attr-gads.log');
+
+        $page = new Settings_Page($settings, $logger);
+
+        ob_start();
+        $page->render_log_actions_field();
+        $output = ob_get_clean();
+
+        expect($output)->toContain('1.2 KB');
+        expect($output)->toContain('Download Log');
+        expect($output)->toContain('Clear Log');
+        expect($output)->not->toContain('disabled');
+
+        \Patchwork\restoreAll();
+    });
+
+    it('renders disabled buttons when no log exists', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\when('wp_nonce_url')->returnArg();
+        Functions\when('admin_url')->returnArg();
+
+        $settings = Mockery::mock(Settings::class);
+        $logger   = Mockery::mock(Logger::class);
+        $logger->shouldReceive('exists')->andReturn(false);
+        $logger->shouldReceive('get_path')->andReturn('/tmp/kntnt-ad-attr-gads.log');
+
+        $page = new Settings_Page($settings, $logger);
+
+        ob_start();
+        $page->render_log_actions_field();
+        $output = ob_get_clean();
+
+        expect($output)->toContain('Download Log');
+        expect($output)->toContain('Clear Log');
+        expect($output)->toContain('disabled');
+        expect($output)->not->toContain('Current size');
+    });
+
+});
+
+// ─── handle_download_log() ───
+
+describe('Settings_Page::handle_download_log()', function () {
+
+    it('sends log file as download attachment', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\expect('check_admin_referer')->once()->with('kntnt_ad_attr_gads_download_log');
+        Functions\expect('current_user_can')->once()->with('manage_options')->andReturn(true);
+        Functions\when('nocache_headers')->justReturn(null);
+
+        $logger = Mockery::mock(Logger::class);
+        $logger->shouldReceive('exists')->once()->andReturn(true);
+        $logger->shouldReceive('get_path')->andReturn('/tmp/kntnt-ad-attr-gads.log');
+
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings, $logger);
+
+        $headers = [];
+        \Patchwork\redefine('header', function (string $h) use (&$headers) {
+            $headers[] = $h;
+        });
+        \Patchwork\redefine('filesize', fn () => 5678);
+
+        $readfile_path = null;
+        \Patchwork\redefine('readfile', function (string $path) use (&$readfile_path) {
+            $readfile_path = $path;
+            return 5678;
+        });
+        \Patchwork\redefine('exit', function () {});
+
+        $page->handle_download_log();
+
+        expect($headers)->toContain('Content-Type: text/plain');
+        expect($headers)->toContain('Content-Disposition: attachment; filename="kntnt-ad-attr-gads.log"');
+        expect($headers)->toContain('Content-Length: 5678');
+        expect($readfile_path)->toBe('/tmp/kntnt-ad-attr-gads.log');
+
+        \Patchwork\restoreAll();
+    });
+
+});
+
+// ─── handle_clear_log() ───
+
+describe('Settings_Page::handle_clear_log()', function () {
+
+    it('clears log and redirects to settings page', function () {
+        Functions\when('is_admin')->justReturn(false);
+        Functions\expect('check_admin_referer')->once()->with('kntnt_ad_attr_gads_clear_log');
+        Functions\expect('current_user_can')->once()->with('manage_options')->andReturn(true);
+
+        $logger = Mockery::mock(Logger::class);
+        $logger->shouldReceive('clear')->once();
+
+        $redirect_url = null;
+        Functions\expect('wp_safe_redirect')->once()->withArgs(function (string $url) use (&$redirect_url) {
+            $redirect_url = $url;
+            return true;
+        });
+        Functions\when('admin_url')->alias(fn ($path) => 'http://example.com/wp-admin/' . $path);
+
+        \Patchwork\redefine('exit', function () {});
+
+        $settings = Mockery::mock(Settings::class);
+        $page     = new Settings_Page($settings, $logger);
+        $page->handle_clear_log();
+
+        expect($redirect_url)->toContain('options-general.php?page=kntnt-ad-attr-gads');
+
+        \Patchwork\restoreAll();
     });
 
 });

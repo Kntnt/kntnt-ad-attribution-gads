@@ -39,15 +39,16 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 1. `Updater` — GitHub-based update checker
 2. `Migrator` — database migration runner
 3. `Gclid_Capturer` — registers `gclid` parameter on the core plugin's click-ID capture filter
-4. `Settings` — reads/writes `kntnt_ad_attr_gads_settings` option (API credentials + conversion defaults)
-5. `Settings_Page` — WordPress Settings API page under Settings > Google Ads Attribution (registers its own `admin_menu`, `admin_init`, and `admin_notices` hooks in the constructor)
-6. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
+4. `Settings` — reads/writes `kntnt_ad_attr_gads_settings` option (API credentials + conversion defaults + `enable_logging`)
+5. `Logger` — diagnostic file logger (writes to `wp-content/uploads/kntnt-ad-attr-gads/kntnt-ad-attr-gads.log`)
+6. `Settings_Page` — WordPress Settings API page under Settings > Google Ads Attribution (registers its own `admin_menu`, `admin_init`, `admin_notices`, and `admin_post_` hooks in the constructor)
+7. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
 
 **Lifecycle files (not autoloaded):**
 
-- `install.php` — activation: runs Migrator
-- `uninstall.php` — complete data removal. Runs outside the plugin's namespace (no autoloader available), uses raw `$wpdb`. Deletes version option, settings option, and transients.
-- `Plugin::deactivate()` — clears transients. Preserves data.
+- `install.php` — activation: runs Migrator, creates log directory with `.htaccess` protection
+- `uninstall.php` — complete data removal. Runs outside the plugin's namespace (no autoloader available), uses raw `$wpdb`. Deletes version option, settings option, transients, and the diagnostic log directory.
+- `Plugin::deactivate()` — clears transients. Preserves data and log files.
 
 **Plugin row action link:** `Plugin::register_hooks()` adds a `plugin_action_links_{basename}` filter that prepends a "Settings" link pointing to `options-general.php?page=kntnt-ad-attr-gads` on the Plugins page.
 
@@ -68,6 +69,8 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 
 **Credential error notification:** `Conversion_Reporter::process()` checks the `credential_error` flag in the result array from `Google_Ads_Client` to decide whether to set the `kntnt_ad_attr_gads_credential_error` transient. The transient has no expiry — it persists until explicitly cleared. On successful upload the transient is deleted. `Settings_Page` hooks `admin_notices` to display a persistent error notice (visible on all admin pages, `manage_options` capability required) with a link to the settings page. `Plugin::on_settings_updated()` also clears the transient when settings are saved, so the notice disappears immediately after re-entering credentials. Only credential failures set the flag — other API errors (HTTP 4xx, partial failures) do not.
 
+**Diagnostic logging:** The `Logger` class writes timestamped entries to `wp-content/uploads/kntnt-ad-attr-gads/kntnt-ad-attr-gads.log` when the `enable_logging` setting is enabled (empty string = disabled, `'1'` = enabled). Format: `[2026-02-26 14:30:00+01:00] LEVEL Message`. The file is capped at 500 KB — when exceeded, the last ~250 KB is kept (trimmed to the nearest line boundary). Sensitive values (`client_secret`, `refresh_token`, access tokens) are masked via `Logger::mask()` (reveals last 4 chars). The log directory is created on activation with a `Deny from all` `.htaccess` and removed on uninstall. The settings page provides a "Diagnostic Log" section with an enable checkbox, download button, and clear button. Download and clear are handled via `admin_post_` hooks with nonce verification and `manage_options` capability check.
+
 The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookies. It uses the core plugin's infrastructure (Click_ID_Store, Queue, Queue_Processor).
 
 ## File Structure
@@ -76,8 +79,8 @@ The plugin creates no custom tables, CPTs, cron hooks, REST endpoints, or cookie
 kntnt-ad-attribution-gads/
 ├── kntnt-ad-attribution-gads.php      ← Main plugin file (version header, PHP check, bootstrap)
 ├── autoloader.php                     ← PSR-4 autoloader for Kntnt\Ad_Attribution_Gads namespace
-├── install.php                        ← Activation script (runs Migrator)
-├── uninstall.php                      ← Uninstall script (removes option + transients)
+├── install.php                        ← Activation script (runs Migrator, creates log directory)
+├── uninstall.php                      ← Uninstall script (removes option + transients + log directory)
 ├── LICENSE                            ← GPL-2.0-or-later
 ├── README.md                          ← User and contributor documentation
 ├── CLAUDE.md                          ← This file
@@ -88,7 +91,8 @@ kntnt-ad-attribution-gads/
 │   ├── Migrator.php                   ← Database migration runner (version-based)
 │   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
-│   ├── Settings_Page.php             ← Admin settings page + credential error admin notice
+│   ├── Logger.php                    ← Diagnostic file logger (500 KB cap, credential masking)
+│   ├── Settings_Page.php             ← Admin settings page + credential error notice + log management
 │   ├── Conversion_Reporter.php       ← Enqueue/process callbacks + credential error transient flag
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 ├── js/
@@ -116,7 +120,8 @@ kntnt-ad-attribution-gads/
         ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
         ├── BootstrapSafetyTest.php     ← Try-catch safety wrapper tests
         ├── GoogleAdsClientTest.php    ← API client token/upload tests
-        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
+        ├── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
+        └── LoggerTest.php            ← Diagnostic logger tests
 ```
 
 **Directories that will be created when needed:** `migrations/`

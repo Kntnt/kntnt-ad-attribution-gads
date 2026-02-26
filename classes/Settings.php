@@ -47,6 +47,7 @@ final class Settings {
 		'login_customer_id'    => '',
 		'conversion_value'     => '0',
 		'currency_code'        => 'SEK',
+		'enable_logging'       => '',
 	];
 
 	/**

@@ -9,6 +9,7 @@
 declare(strict_types=1);
 
 use Kntnt\Ad_Attribution_Gads\Conversion_Reporter;
+use Kntnt\Ad_Attribution_Gads\Logger;
 use Kntnt\Ad_Attribution_Gads\Settings;
 use Brain\Monkey\Functions;
 
@@ -57,7 +58,7 @@ describe('Conversion_Reporter::register()', function () {
     it('always registers regardless of configuration state', function () {
         $settings = Mockery::mock(Settings::class);
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->register([]);
 
         expect($result)->toHaveKey('google_ads');
@@ -75,7 +76,7 @@ describe('Conversion_Reporter::register()', function () {
             ],
         ];
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->register($existing);
 
         expect($result)->toHaveKey('meta_ads');
@@ -92,7 +93,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0];
         $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
@@ -114,7 +115,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0];
         $click_ids    = ['hash_a' => ['meta_ads' => 'fbclid_123']];
@@ -130,7 +131,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = [
             'hash_a' => 0.5,
@@ -159,7 +160,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 0.25];
         $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
@@ -177,7 +178,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0, 'hash_b' => 1.0];
         $click_ids    = [
@@ -196,7 +197,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = [];
         $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
@@ -212,7 +213,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         // Attribution for hash_x exists but click_ids has no entry for it at all.
         $attributions = ['hash_x' => 0.75];
@@ -229,7 +230,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0];
         $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
@@ -246,7 +247,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0];
         $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
@@ -270,7 +271,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0];
         $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
@@ -324,7 +325,7 @@ describe('Conversion_Reporter::process()', function () {
         Functions\expect('is_wp_error')->once()->andReturn(false);
         Functions\when('delete_transient')->justReturn(true);
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->process([
             'gclid'                => 'gclid_abc',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -375,7 +376,7 @@ describe('Conversion_Reporter::process()', function () {
         Functions\expect('is_wp_error')->once()->andReturn(false);
         Functions\when('delete_transient')->justReturn(true);
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->process([
             'gclid'                => 'gclid_abc',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -407,7 +408,7 @@ describe('Conversion_Reporter::process()', function () {
             return true;
         });
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->process([
             'gclid'                => 'gclid_abc',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -433,7 +434,7 @@ describe('Conversion_Reporter::process()', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->twice()->andReturn(default_settings());
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         // Enqueue a conversion.
         $attributions = ['hash_a' => 1.0];
@@ -481,7 +482,7 @@ describe('Conversion_Reporter::process()', function () {
         $empty = Mockery::mock(Settings::class);
         $empty->shouldReceive('get_all')->once()->andReturn(empty_settings());
 
-        $reporter = new Conversion_Reporter($empty);
+        $reporter = new Conversion_Reporter($empty, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         // Enqueue with empty credentials.
         $attributions = ['hash_a' => 0.5];
@@ -496,7 +497,7 @@ describe('Conversion_Reporter::process()', function () {
         $filled = Mockery::mock(Settings::class);
         $filled->shouldReceive('get_all')->once()->andReturn(default_settings());
 
-        $reporter2 = new Conversion_Reporter($filled);
+        $reporter2 = new Conversion_Reporter($filled, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         // Stub HTTP functions for process().
         Functions\expect('get_transient')
@@ -565,7 +566,7 @@ describe('Conversion_Reporter::process()', function () {
         Functions\expect('is_wp_error')->once()->andReturn(false);
         Functions\when('delete_transient')->justReturn(true);
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $reporter->process([
             'gclid'                => 'gclid_zero_frac',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -621,7 +622,7 @@ describe('Conversion_Reporter::process()', function () {
         Functions\expect('is_wp_error')->once()->andReturn(false);
         Functions\when('delete_transient')->justReturn(true);
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $reporter->process([
             'gclid'                => 'gclid_zero_val',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -675,7 +676,7 @@ describe('Conversion_Reporter::process()', function () {
         Functions\expect('is_wp_error')->once()->andReturn(false);
         Functions\when('delete_transient')->justReturn(true);
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $reporter->process([
             'gclid'                => 'gclid_abc',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -729,7 +730,7 @@ describe('Conversion_Reporter::process()', function () {
             return true;
         });
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->process([
             'gclid'                => 'gclid_abc',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -765,7 +766,7 @@ describe('Conversion_Reporter::process()', function () {
             return true;
         });
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->process([
             'gclid'                => 'gclid_abc',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -822,7 +823,7 @@ describe('Conversion_Reporter::process()', function () {
             return true;
         });
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->process([
             'gclid'                => 'gclid_abc',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -874,7 +875,7 @@ describe('Conversion_Reporter::process()', function () {
             ->with('kntnt_ad_attr_gads_credential_error')
             ->andReturn(true);
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $result   = $reporter->process([
             'gclid'                => 'gclid_abc',
             'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
@@ -931,7 +932,7 @@ describe('Conversion_Reporter::reset_failed_jobs()', function () {
                 return $hook === 'kntnt_ad_attr_process_queue';
             });
 
-        $reporter = new Conversion_Reporter($settings);
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
         $reporter->reset_failed_jobs();
 
         // Mockery verifies prepare/query/schedule expectations on teardown.
