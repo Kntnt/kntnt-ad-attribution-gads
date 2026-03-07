@@ -29,6 +29,18 @@ use Kntnt\Ad_Attribution\Logger;
 final class Conversion_Reporter {
 
 	/**
+	 * Seconds to delay upload after click capture (6 hours).
+	 *
+	 * Google Ads needs time to register the click before accepting
+	 * offline conversions. Using click time (not conversion time)
+	 * minimizes unnecessary wait for old clicks already past the window.
+	 *
+	 * @var int
+	 * @since 1.8.0
+	 */
+	private const UPLOAD_DELAY_SECONDS = 21600;
+
+	/**
 	 * Transient key for flagging credential errors in admin.
 	 *
 	 * @var string
@@ -77,8 +89,11 @@ final class Conversion_Reporter {
 	 * values (resource name, attributed value) are computed at process time
 	 * so payloads remain useful even if credentials were empty at enqueue time.
 	 *
+	 * Each job is deferred by UPLOAD_DELAY_SECONDS from the click capture time
+	 * to give Google Ads time to register the click before accepting uploads.
+	 *
 	 * @param array<string,float>  $attributions Hash => attribution fraction.
-	 * @param array<string,array<string,string>> $click_ids Hash => platform => click ID.
+	 * @param array<string,array<string,array{id: string, captured_at: int}>> $click_ids Hash => platform => structured click data.
 	 * @param array<string,array<string,string>> $campaigns Hash => campaign data.
 	 * @param array{timestamp: string}           $context   Conversion context.
 	 *
@@ -95,12 +110,14 @@ final class Conversion_Reporter {
 		foreach ( $attributions as $hash => $fraction ) {
 
 			// Skip hashes without a Google Ads click ID.
-			if ( empty( $click_ids[ $hash ]['google_ads'] ) ) {
+			if ( empty( $click_ids[ $hash ]['google_ads']['id'] ) ) {
 				continue;
 			}
 
-			// Snapshot raw values; derived values are computed in process().
-			$gclid              = $click_ids[ $hash ]['google_ads'];
+			// Extract click ID and capture time from the structured format.
+			$gclid              = $click_ids[ $hash ]['google_ads']['id'];
+			$captured_at        = $click_ids[ $hash ]['google_ads']['captured_at'];
+			$not_before         = $captured_at + self::UPLOAD_DELAY_SECONDS;
 			$conversion_action_id = $settings['conversion_action_id'];
 
 			$this->logger->info( 'GADS', "Enqueued — gclid: {$gclid}, datetime: {$datetime}, fraction: {$fraction}" );
@@ -120,7 +137,8 @@ final class Conversion_Reporter {
 					'refresh_token'        => $settings['refresh_token'],
 					'login_customer_id'    => $settings['login_customer_id'],
 				],
-				'label' => sprintf( 'gclid %s → action %s', substr( $gclid, 0, 12 ) . '…', $conversion_action_id ),
+				'label'      => sprintf( 'gclid %s → action %s', substr( $gclid, 0, 12 ) . '…', $conversion_action_id ),
+				'not_before' => $not_before,
 			];
 		}
 

@@ -95,8 +95,9 @@ describe('Conversion_Reporter::enqueue()', function () {
 
         $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
+        $captured_at  = 1700000000;
         $attributions = ['hash_a' => 1.0];
-        $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
+        $click_ids    = ['hash_a' => ['google_ads' => ['id' => 'gclid_abc', 'captured_at' => $captured_at]]];
         $campaigns    = ['hash_a' => ['source' => 'google']];
         $context      = ['timestamp' => '2026-01-15 10:30:00'];
 
@@ -109,6 +110,44 @@ describe('Conversion_Reporter::enqueue()', function () {
         expect($payloads[0]['payload']['conversion_value'])->toBe('1000');
         expect($payloads[0]['payload']['currency_code'])->toBe('SEK');
         expect($payloads[0]['payload']['customer_id'])->toBe('1234567890');
+        expect($payloads[0])->toHaveKey('not_before');
+        expect($payloads[0]['not_before'])->toBe($captured_at + 21600);
+    });
+
+    it('computes not_before as captured_at + 21600 (UPLOAD_DELAY_SECONDS)', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
+
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+
+        // A recent click — not_before should be in the future.
+        $recent_capture = time() - 3600; // 1 hour ago
+        $attributions   = ['hash_a' => 1.0];
+        $click_ids      = ['hash_a' => ['google_ads' => ['id' => 'gclid_recent', 'captured_at' => $recent_capture]]];
+        $context        = ['timestamp' => '2026-01-15 10:30:00'];
+
+        $payloads = $reporter->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads[0]['not_before'])->toBe($recent_capture + 21600);
+    });
+
+    it('produces past not_before for old clicks (immediate processing)', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
+
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+
+        // An old click — captured_at + 21600 is in the past.
+        $old_capture  = time() - 86400; // 24 hours ago
+        $attributions = ['hash_a' => 1.0];
+        $click_ids    = ['hash_a' => ['google_ads' => ['id' => 'gclid_old', 'captured_at' => $old_capture]]];
+        $context      = ['timestamp' => '2026-01-15 10:30:00'];
+
+        $payloads = $reporter->enqueue($attributions, $click_ids, [], $context);
+
+        // not_before is old_capture + 21600, which is still in the past.
+        expect($payloads[0]['not_before'])->toBe($old_capture + 21600);
+        expect($payloads[0]['not_before'])->toBeLessThan(time());
     });
 
     it('skips attributions without google_ads click ID', function () {
@@ -139,9 +178,9 @@ describe('Conversion_Reporter::enqueue()', function () {
             'hash_c' => 0.2,
         ];
         $click_ids = [
-            'hash_a' => ['google_ads' => 'gclid_a'],
-            'hash_b' => ['google_ads' => 'gclid_b'],
-            'hash_c' => ['meta_ads' => 'fbclid_c'],  // No gclid.
+            'hash_a' => ['google_ads' => ['id' => 'gclid_a', 'captured_at' => 1700000000]],
+            'hash_b' => ['google_ads' => ['id' => 'gclid_b', 'captured_at' => 1700000100]],
+            'hash_c' => ['meta_ads' => ['id' => 'fbclid_c', 'captured_at' => 1700000200]],  // No gclid.
         ];
         $campaigns = [];
         $context   = ['timestamp' => '2026-01-15 10:30:00'];
@@ -163,7 +202,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 0.25];
-        $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
+        $click_ids    = ['hash_a' => ['google_ads' => ['id' => 'gclid_abc', 'captured_at' => 1700000000]]];
         $campaigns    = [];
         $context      = ['timestamp' => '2026-01-15 10:30:00'];
 
@@ -233,7 +272,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0];
-        $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
+        $click_ids    = ['hash_a' => ['google_ads' => ['id' => 'gclid_abc', 'captured_at' => 1700000000]]];
         $campaigns    = [];
         $context      = ['timestamp' => '2026-03-15 14:30:00'];
 
@@ -250,7 +289,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0];
-        $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
+        $click_ids    = ['hash_a' => ['google_ads' => ['id' => 'gclid_abc', 'captured_at' => 1700000000]]];
         $campaigns    = [];
         $context      = ['timestamp' => '2026-01-15 10:30:00'];
 
@@ -274,7 +313,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
 
         $attributions = ['hash_a' => 1.0];
-        $click_ids    = ['hash_a' => ['google_ads' => 'gclid_abc']];
+        $click_ids    = ['hash_a' => ['google_ads' => ['id' => 'gclid_abc', 'captured_at' => 1700000000]]];
         $campaigns    = [];
         $context      = ['timestamp' => '2026-01-15 10:30:00'];
 
@@ -438,7 +477,7 @@ describe('Conversion_Reporter::process()', function () {
 
         // Enqueue a conversion.
         $attributions = ['hash_a' => 1.0];
-        $click_ids    = ['hash_a' => ['google_ads' => 'gclid_end_to_end']];
+        $click_ids    = ['hash_a' => ['google_ads' => ['id' => 'gclid_end_to_end', 'captured_at' => 1700000000]]];
         $campaigns    = [];
         $context      = ['timestamp' => '2026-01-15 10:30:00'];
 
@@ -486,7 +525,7 @@ describe('Conversion_Reporter::process()', function () {
 
         // Enqueue with empty credentials.
         $attributions = ['hash_a' => 0.5];
-        $click_ids    = ['hash_a' => ['google_ads' => 'gclid_fill']];
+        $click_ids    = ['hash_a' => ['google_ads' => ['id' => 'gclid_fill', 'captured_at' => 1700000000]]];
         $campaigns    = [];
         $context      = ['timestamp' => '2026-01-15 10:30:00'];
 

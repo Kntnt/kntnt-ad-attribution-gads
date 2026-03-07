@@ -18,7 +18,7 @@ The plugin uses two adapter hooks provided by the core plugin:
 
 1. **Click-ID capture** (`kntnt_ad_attr_click_id_capturers`): Registers `'google_ads' => 'gclid'`. When a visitor clicks a tracking URL that has a `gclid` query parameter, the core plugin's `Click_Handler` captures and stores the value in the `kntnt_ad_attr_click_ids` table. No custom tables or storage are needed — the core handles everything.
 
-2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed to a hash that has a stored `gclid`, a payload is built and queued for asynchronous processing. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
+2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed to a hash that has a stored `gclid`, a payload is built and queued for asynchronous processing. Each job is deferred by 6 hours from the click capture time (via the core queue's `not_before` parameter), giving Google Ads time to register the click before accepting the conversion upload. Clicks already older than 6 hours are processed immediately. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
 
 The plugin creates no custom tables, CPTs, cron hooks, or cookies. It registers three REST API endpoints for settings page operations (test connection, create conversion action, fetch conversion action details). It relies on the core plugin's infrastructure for click-ID storage and conversion queuing.
 
@@ -26,6 +26,7 @@ The plugin creates no custom tables, CPTs, cron hooks, or cookies. It registers 
 
 - Automatically captures `gclid` parameters when visitors arrive via Google Ads tracking URLs.
 - Queues and uploads conversions to Google Ads via the Offline Conversion Upload API.
+- **Deferred upload** — each conversion upload is deferred by 6 hours from click capture time, giving Google Ads time to register the click. Clicks older than 6 hours are processed immediately.
 - Resilient queuing — conversions are always queued regardless of credential status. Missing credentials are filled in from current settings when the job is processed.
 - Failed jobs are automatically reset when settings are updated with valid credentials.
 - **Test Connection** button verifies all credentials — OAuth2 tokens, Customer ID, Developer Token, Login Customer ID, and Conversion Action ID — in a single click. Uses current form values, so you can test before saving.
