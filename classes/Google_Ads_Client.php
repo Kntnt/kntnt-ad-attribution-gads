@@ -151,7 +151,7 @@ final class Google_Ads_Client {
 	 * @param float  $conversion_value     Monetary value of the conversion.
 	 * @param string $currency_code        ISO 4217 currency code.
 	 *
-	 * @return array{success: bool, error: string, credential_error: bool} Result with success flag, error message, and credential error flag.
+	 * @return array{success: bool, error: string, credential_error: bool, permanent_failure: bool} Result with success flag, error message, credential error flag, and permanent failure flag.
 	 * @since 0.3.0
 	 */
 	public function upload_click_conversion(
@@ -167,7 +167,7 @@ final class Google_Ads_Client {
 		$access_token = $this->get_access_token();
 		if ( $access_token === null ) {
 			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: " . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
-			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true ];
+			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'permanent_failure' => false ];
 		}
 
 		// Build the conversion payload.
@@ -195,7 +195,7 @@ final class Google_Ads_Client {
 		// Handle WP_Error (network failure, timeout, etc.).
 		if ( is_wp_error( $response ) ) {
 			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: {$response->get_error_message()}" );
-			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false ];
+			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false, 'permanent_failure' => false ];
 		}
 
 		// Check HTTP status.
@@ -203,20 +203,21 @@ final class Google_Ads_Client {
 		if ( $status_code !== 200 ) {
 			$response_body = wp_remote_retrieve_body( $response );
 			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: HTTP {$status_code}: {$response_body}" );
-			return [ 'success' => false, 'error' => "HTTP {$status_code}: {$response_body}", 'credential_error' => false ];
+			return [ 'success' => false, 'error' => "HTTP {$status_code}: {$response_body}", 'credential_error' => false, 'permanent_failure' => false ];
 		}
 
 		// Check for partial failure errors in the response body.
 		$response_body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( ! empty( $response_body['partialFailureError'] ) ) {
 			$error_message = $response_body['partialFailureError']['message'] ?? 'Partial failure error';
-			$this->logger?->error( 'GADS', "Conversion partial failure — gclid: {$gclid}, error: {$error_message}" );
-			return [ 'success' => false, 'error' => $error_message, 'credential_error' => false ];
+			$permanent     = self::is_permanent_partial_failure( $error_message );
+			$this->logger?->error( 'GADS', "Conversion partial failure — gclid: {$gclid}, error: {$error_message}" . ( $permanent ? ' (permanent, will not retry)' : '' ) );
+			return [ 'success' => false, 'error' => $error_message, 'credential_error' => false, 'permanent_failure' => $permanent ];
 		}
 
 		$this->logger?->info( 'GADS', "Conversion uploaded — gclid: {$gclid}" );
 
-		return [ 'success' => true, 'error' => '', 'credential_error' => false ];
+		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'permanent_failure' => false ];
 	}
 
 	/**
@@ -572,6 +573,42 @@ final class Google_Ads_Client {
 		$this->logger?->info( 'GADS', "Token refresh successful — expires_in: {$body['expires_in']}s" );
 
 		return $body['access_token'];
+	}
+
+	/**
+	 * Determines whether a partial failure error is permanent.
+	 *
+	 * Permanent errors will never succeed on retry. Known permanent
+	 * errors from Google Ads include CLICK_NOT_FOUND, EXPIRED_EVENT,
+	 * CLICK_CONVERSION_ALREADY_EXISTS, and CONVERSION_PRECEDES_EVENT.
+	 *
+	 * @param string $error_message The partial failure error message from Google Ads.
+	 *
+	 * @return bool True if the error is permanent and should not be retried.
+	 * @since 1.9.0
+	 */
+	private static function is_permanent_partial_failure( string $error_message ): bool {
+
+		// Patterns from Google Ads API partial failure messages that indicate
+		// the upload will never succeed regardless of how many times we retry.
+		$permanent_patterns = [
+			'could not be attributed to a click',  // CLICK_NOT_FOUND
+			'already exists',                       // CLICK_CONVERSION_ALREADY_EXISTS
+			'already been uploaded',                // CLICK_CONVERSION_ALREADY_EXISTS (alt)
+			'precedes',                             // CONVERSION_PRECEDES_EVENT
+			'click_through_lookback_window',        // EXPIRED_EVENT
+			'not eligible',                         // CONVERSION_ACTION_NOT_ELIGIBLE
+			'invalid conversion action type',       // INVALID_CONVERSION_ACTION_TYPE
+		];
+
+		$lower = strtolower( $error_message );
+		foreach ( $permanent_patterns as $pattern ) {
+			if ( str_contains( $lower, $pattern ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

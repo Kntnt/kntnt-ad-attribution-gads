@@ -526,7 +526,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
             'SEK',
         );
 
-        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false]);
+        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false, 'permanent_failure' => false]);
     });
 
     it('succeeds with token refresh when cache is empty', function () {
@@ -577,7 +577,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
             'SEK',
         );
 
-        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false]);
+        expect($result)->toBe(['success' => true, 'error' => '', 'credential_error' => false, 'permanent_failure' => false]);
     });
 
     it('sends correctly structured conversion payload in upload request', function () {
@@ -699,6 +699,119 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         expect($result['success'])->toBeFalse();
         expect($result['error'])->toBe('Too recent conversion action.');
+        expect($result['permanent_failure'])->toBeFalse();
+    });
+
+    it('flags CLICK_NOT_FOUND as permanent failure', function () {
+
+        // Cached token available.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'partialFailureError' => [
+                        'code'    => 3,
+                        'message' => 'The imported event could not be attributed to a click. This may be because the event did not come from a Google Ads campaign., at conversions[0].gclid',
+                    ],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['permanent_failure'])->toBeTrue();
+    });
+
+    it('flags CLICK_CONVERSION_ALREADY_EXISTS as permanent failure', function () {
+
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'partialFailureError' => [
+                        'code'    => 3,
+                        'message' => 'This conversion already exists.',
+                    ],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['permanent_failure'])->toBeTrue();
+    });
+
+    it('does not flag retryable errors as permanent', function () {
+
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'partialFailureError' => [
+                        'code'    => 3,
+                        'message' => 'The click associated with the given identifier or iOS URL parameter occurred less than 6 hours ago. Retry after 6 hours have passed.',
+                    ],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        $client = make_client();
+        $result = $client->upload_click_conversion(
+            'test_gclid',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($result['success'])->toBeFalse();
+        expect($result['permanent_failure'])->toBeFalse();
     });
 
     it('returns failure on non-200 HTTP status', function () {

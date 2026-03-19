@@ -217,6 +217,18 @@ final class Conversion_Reporter {
 				set_transient( self::CREDENTIAL_ERROR_TRANSIENT, 'token_refresh_failed', 0 );
 			}
 
+			// Permanent API failures (e.g. CLICK_NOT_FOUND) will never succeed
+			// on retry. Return true to stop the queue from retrying. The
+			// conversion is already recorded in the core plugin's stats.
+			// A permanent failure means the API was reached (credentials
+			// worked), so clear any stale credential error flag.
+			if ( ! empty( $result['permanent_failure'] ) ) {
+				delete_transient( self::CREDENTIAL_ERROR_TRANSIENT );
+				$this->logger->error( 'GADS', "Permanent failure — gclid: {$payload['gclid']}, will not retry: {$result['error']}" );
+				error_log( "Kntnt Ad Attribution Gads: Permanent failure for gclid {$payload['gclid']}: {$result['error']}" );
+				return true;
+			}
+
 			error_log( "Kntnt Ad Attribution Gads: Conversion upload failed for gclid {$payload['gclid']}: {$result['error']}" );
 			return false;
 		}

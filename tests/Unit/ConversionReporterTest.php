@@ -851,6 +851,136 @@ describe('Conversion_Reporter::process()', function () {
         \Patchwork\restoreAll();
     });
 
+    it('returns true on permanent failure to stop retries', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        // Stub HTTP functions — upload returns a permanent partial failure.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'partialFailureError' => [
+                        'code'    => 3,
+                        'message' => 'The imported event could not be attributed to a click. This may be because the event did not come from a Google Ads campaign., at conversions[0].gclid',
+                    ],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        // The credential error transient is cleared because the API was reached.
+        Functions\expect('delete_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_credential_error');
+
+        $logged = null;
+        \Patchwork\redefine('error_log', function (string $message) use (&$logged) {
+            $logged = $message;
+            return true;
+        });
+
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_permanent',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
+        ]);
+
+        // Permanent failures return true to prevent retries.
+        expect($result)->toBeTrue();
+        expect($logged)->toContain('Permanent failure');
+        expect($logged)->toContain('gclid_permanent');
+
+        \Patchwork\restoreAll();
+    });
+
+    it('clears credential error transient on permanent failure', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        // Stub HTTP functions — upload returns a permanent partial failure.
+        Functions\expect('get_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_access_token')
+            ->andReturn('cached_token');
+
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'partialFailureError' => [
+                        'code'    => 3,
+                        'message' => 'The imported event could not be attributed to a click.',
+                    ],
+                ]),
+            ]);
+
+        Functions\expect('is_wp_error')->once()->andReturn(false);
+
+        // Credential error transient should be deleted even though the
+        // upload failed — a permanent failure proves the API was reached.
+        Functions\expect('delete_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_credential_error');
+
+        \Patchwork\redefine('error_log', function () {
+            return true;
+        });
+
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_perm',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
+        ]);
+
+        expect($result)->toBeTrue();
+
+        \Patchwork\restoreAll();
+    });
+
     it('sets credential error transient when credentials are missing', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
