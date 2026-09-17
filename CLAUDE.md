@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WordPress add-on plugin for Kntnt Ad Attribution that adds Google Ads offline conversion tracking. Captures `gclid` parameters from ad clicks and reports conversions back to Google Ads via the Offline Conversion Upload API.
 
-The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) with three sections (API Credentials, Conversion Action, Conversion Defaults). Diagnostic logging is handled by the core plugin's shared Logger. The settings page uses REST API endpoints for test connection, create conversion action, and fetch conversion action details — all operations read current form values instead of saved settings. A "Settings" action link on the Plugins page provides quick access. Conversions are always queued regardless of credential status — missing credentials are filled in from current settings at processing time. Failed queue jobs are automatically reset when credentials are updated. A persistent admin notice warns when uploads fail due to missing or invalid credentials.
+The plugin captures `gclid` parameters via the core plugin's click-ID system, provides a settings page (Settings > Google Ads Attribution) with three sections (API Credentials, Conversion Action, Conversion Defaults). Diagnostic logging is handled by the core plugin's shared Logger. The settings page uses REST API endpoints for test connection, create conversion action, and fetch conversion action details — all operations read current form values instead of saved settings. A "Settings" action link on the Plugins page provides quick access. Conversions are always queued regardless of credential status — missing credentials are filled in from current settings at processing time. Failed queue jobs are automatically reset when credentials are updated. A persistent admin notice warns when uploads fail due to missing or invalid credentials. A weekly background connection check emails the site administrator when all three attempts in a round fail.
 
 ## Naming Conventions
 
@@ -43,12 +43,13 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 5. Core `Logger` — retrieved from `Kntnt\Ad_Attribution\Plugin::get_instance()->logger`
 6. `Settings_Page` — WordPress Settings API page under Settings > Google Ads Attribution (registers `admin_menu`, `admin_init`, `admin_notices`, `admin_enqueue_scripts` hooks in the constructor; `rest_api_init` always)
 7. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
+8. `Connection_Monitor` — schedules and runs the weekly connection check (hooks registered in `Plugin::register_hooks()`)
 
 **Lifecycle files (not autoloaded):**
 
 - `install.php` — activation: runs Migrator.
-- `uninstall.php` — complete data removal. Runs outside the plugin's namespace (no autoloader available), uses raw `$wpdb`. Deletes version option, settings option, and transients.
-- `Plugin::deactivate()` — clears transients. Preserves data.
+- `uninstall.php` — complete data removal. Runs outside the plugin's namespace (no autoloader available), uses raw `$wpdb`. Deletes version option, settings option, connection check state option, scheduled connection checks, and transients.
+- `Plugin::deactivate()` — clears transients and calls `Connection_Monitor::unschedule()` (weekly start, pending retries, round state). Preserves settings.
 
 **Plugin row action link:** `Plugin::register_hooks()` adds a `plugin_action_links_{basename}` filter that prepends a "Settings" link pointing to `options-general.php?page=kntnt-ad-attr-gads` on the Plugins page.
 
@@ -87,7 +88,9 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 
 The JavaScript (`settings-page.js`) sends REST requests with `X-WP-Nonce` header and JSON body. It dynamically enables/disables buttons based on field values and auto-fetches conversion action details when an ID is present.
 
-The plugin creates no custom tables, CPTs, cron hooks, or cookies. It uses the core plugin's infrastructure (Click_ID_Store, Queue, Queue_Processor).
+**Weekly connection check:** `Connection_Monitor` runs `Google_Ads_Client::test_connection()` with the saved settings (fresh read per attempt, including `conversion_action_id`, so phase 2 runs). Rounds start Monday 01:00 site time. `WEEKLY_HOOK` (`kntnt_ad_attr_gads_weekly_connection_check`) is a chain of single events, not a recurring event: `run_weekly()` first schedules the next start via `next_start()`, which computes the date in `wp_timezone()` so 01:00 local time survives DST (a fixed 604800 s interval would drift an hour). `ensure_scheduled()` on `init` recreates a missing start, covering updated sites and lost events. A failed attempt schedules `RETRY_HOOK` (`kntnt_ad_attr_gads_connection_check_retry`) with args `[round, attempt]` after `RETRY_DELAYS` (3600 s before attempt 2, 7200 s before attempt 3), measured from when the failed attempt ran. Round state `{round, attempts[{time, error}], finished}` is stored in the non-autoloaded option `kntnt_ad_attr_gads_connection_check` — never in the settings option, because saving settings triggers `on_settings_updated()` and resets failed queue jobs. Guards: a weekly start within `MIN_ROUND_SPACING` (12 h) of the current round is a duplicate; a retry for another round, a finished round, or an attempt number that is not next is stale. Attempts are recorded before the HTTP calls, and the round is marked finished before emailing, so duplicates cannot add attempts or emails. After the third failure one plain-text `wp_mail()` goes to `admin_email` with attempt times and the sanitized short `error` (tags stripped, max 300 chars) — never `debug` or credential diagnostics. A failed `wp_mail()` is logged via Logger and `error_log()` and not retried. Unconfigured sites (`Settings::is_configured()` false) end the round silently without Google requests. Exceptions from the client count as failed attempts.
+
+The plugin creates no custom tables, CPTs, or cookies. Its only cron hooks are the two connection check hooks above. It uses the core plugin's infrastructure (Click_ID_Store, Queue, Queue_Processor).
 
 ## File Structure
 
@@ -96,7 +99,7 @@ kntnt-ad-attribution-gads/
 ├── kntnt-ad-attribution-gads.php      ← Main plugin file (version header, PHP check, bootstrap)
 ├── autoloader.php                     ← PSR-4 autoloader for Kntnt\Ad_Attribution_Gads namespace
 ├── install.php                        ← Activation script (runs Migrator)
-├── uninstall.php                      ← Uninstall script (removes option + transients)
+├── uninstall.php                      ← Uninstall script (removes options, transients, scheduled checks)
 ├── LICENSE                            ← GPL-2.0-or-later
 ├── README.md                          ← User and contributor documentation
 ├── CLAUDE.md                          ← This file
@@ -109,6 +112,7 @@ kntnt-ad-attribution-gads/
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
 │   ├── Settings_Page.php             ← Admin settings page (3 sections) + credential error notice
 │   ├── Conversion_Reporter.php       ← Enqueue/process callbacks + credential error transient flag
+│   ├── Connection_Monitor.php        ← Weekly connection check, retries, failure email
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 ├── js/
 │   └── settings-page.js              ← Settings page dynamic UI and REST API calls
@@ -135,7 +139,8 @@ kntnt-ad-attribution-gads/
         ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
         ├── BootstrapSafetyTest.php     ← Try-catch safety wrapper tests
         ├── GoogleAdsClientTest.php    ← API client token/upload tests
-        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
+        ├── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
+        └── ConnectionMonitorTest.php  ← Weekly check tests (emulated cron/options/HTTP, simulated time)
 ```
 
 **Directories that will be created when needed:** `migrations/`
@@ -196,4 +201,5 @@ ddev here vendor/bin/pest --filter Dependencies
 - `Dependencies::guard_activation()` loads `plugin.php` explicitly because `is_plugin_active()` may not be available during activation hooks.
 - `Dependencies::get_addon_name()` falls back to `basename(dirname($plugin_file))` when the plugin header's Name field is empty (e.g. if the plugin file is not yet fully configured).
 - Brain Monkey stubs WordPress i18n functions (`__()`, `esc_html__()`, etc.) in the global namespace. When testing namespaced code that calls these functions, you must add explicit `Functions\when('esc_html__')->returnArg()` stubs in the test, because PHP resolves unqualified function calls to the current namespace first.
+- `ConnectionMonitorTest` redefines `time()` via Patchwork and emulates WP cron in memory (`cron_tick()` runs the earliest event). Use it to test scheduling behavior instead of asserting individual cron calls.
 - `Conversion_Reporter::enqueue()` depends on the structured click ID format (`['id' => string, 'captured_at' => int]`) from core plugin >= 1.9.0. The `UPLOAD_DELAY_SECONDS` constant (21600 = 6 hours) determines how long after click capture the conversion upload is deferred.

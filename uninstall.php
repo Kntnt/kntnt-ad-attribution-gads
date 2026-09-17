@@ -3,7 +3,7 @@
  * Plugin uninstall script.
  *
  * Removes all plugin data when the plugin is deleted through WordPress admin:
- * version option and transients.
+ * version option, settings, transients, and scheduled connection checks.
  *
  * @package Kntnt\Ad_Attribution_Gads
  * @since   0.1.0
@@ -25,6 +25,11 @@ delete_option( 'kntnt_ad_attr_gads_version' );
 
 // Delete plugin settings.
 delete_option( 'kntnt_ad_attr_gads_settings' );
+
+// Remove scheduled connection checks and their round state.
+wp_unschedule_hook( 'kntnt_ad_attr_gads_weekly_connection_check' );
+wp_unschedule_hook( 'kntnt_ad_attr_gads_connection_check_retry' );
+delete_option( 'kntnt_ad_attr_gads_connection_check' );
 
 // Remove plugin transients.
 $wpdb->query(

@@ -20,7 +20,7 @@ The plugin uses two adapter hooks provided by the core plugin:
 
 2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed to a hash that has a stored `gclid`, a payload is built and queued for asynchronous processing. Each job is deferred by 6 hours from the click capture time (via the core queue's `not_before` parameter), giving Google Ads time to register the click before accepting the conversion upload. Clicks already older than 6 hours are processed immediately. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
 
-The plugin creates no custom tables, CPTs, cron hooks, or cookies. It registers three REST API endpoints for settings page operations (test connection, create conversion action, fetch conversion action details). It relies on the core plugin's infrastructure for click-ID storage and conversion queuing.
+The plugin creates no custom tables, CPTs, or cookies. It schedules a weekly background check of the Google Ads connection and registers three REST API endpoints for settings page operations (test connection, create conversion action, fetch conversion action details). It relies on the core plugin's infrastructure for click-ID storage and conversion queuing.
 
 ### Features
 
@@ -33,6 +33,7 @@ The plugin creates no custom tables, CPTs, cron hooks, or cookies. It registers 
 - **Create Conversion Action** button creates a new conversion action in Google Ads directly from the settings page. The ID is filled in automatically on success.
 - Auto-fetches conversion action name and category from Google Ads when an ID is present.
 - Persistent admin notice warns when uploads fail due to missing or invalid credentials.
+- **Weekly connection check** — tests the saved credentials every Monday night, retries twice on failure, and emails the site administrator if all three attempts fail. See [Weekly Connection Check](#weekly-connection-check).
 
 ### Settings Page
 
@@ -253,6 +254,14 @@ A success message confirms that all credentials are valid and displays the name 
 
 The Test Connection button is disabled until all required auth fields are filled.
 
+#### Weekly Connection Check
+
+Every Monday at 01:00 in the site's timezone, the plugin runs the same two-phase verification in the background with the saved settings. It sends no conversions and changes nothing in Google Ads. If the check fails, it is retried one hour later, and if that also fails, two hours after that. Only when all three attempts fail is an email sent to the site's administration email address (**Settings > General**), with the time and error of each attempt and a link to the settings page. A new round starts the following week, and it emails again if all its attempts fail too. The check is skipped while the plugin is not fully configured.
+
+The weekly token refresh also keeps the OAuth client in use. Google [deletes OAuth clients that have been unused for six months](https://support.google.com/cloud/answer/15549257#unused-client-deletion), which would otherwise break conversion uploads on sites where no conversions are reported for a long time.
+
+The check relies on WordPress cron running as usual.
+
 #### Manager Account ID (MCC)
 
 Enter the 10-digit Customer ID of your **Manager Account (MCC)**. You can find it in the top-right corner of the [Google Ads Manager Account](https://ads.google.com) interface. A Manager Account is required because the Developer Token is only available through the API Center in a Manager Account.
@@ -340,14 +349,17 @@ Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHu
 5. Core `Logger` — retrieved from `Kntnt\Ad_Attribution\Plugin::get_instance()->logger`
 6. `Settings_Page` — admin settings page under Settings > Google Ads Attribution
 7. `Conversion_Reporter` — registers enqueue/process callbacks on the conversion reporters filter
+8. `Connection_Monitor` — schedules and runs the weekly connection check
+
+**Weekly connection check:** `Connection_Monitor` reuses `Google_Ads_Client::test_connection()` with the saved settings. A single event on `kntnt_ad_attr_gads_weekly_connection_check` starts a round; each run schedules the next start, computed as Monday 01:00 in `wp_timezone()` so the local hour survives daylight saving changes. A failed attempt schedules a single event on `kntnt_ad_attr_gads_connection_check_retry` (1 hour, then 2 hours later) with the round and attempt number as arguments. Round state is kept in the `kntnt_ad_attr_gads_connection_check` option, never in the settings option, and stale or duplicate callbacks are ignored. After the third failure, one email goes to `admin_email`. `ensure_scheduled()` on `init` recreates a missing weekly start, which also covers sites updated from earlier versions.
 
 **Lifecycle:**
 
 | Event | What happens |
 |-------|-------------|
 | Activation | Runs `Migrator` (no migrations yet). |
-| Deactivation | Clears transients with prefix `kntnt_ad_attr_gads_`. Preserves options. |
-| Uninstallation | Deletes `kntnt_ad_attr_gads_version` option, `kntnt_ad_attr_gads_settings` option, and all transients. |
+| Deactivation | Clears transients with prefix `kntnt_ad_attr_gads_`, unschedules the weekly connection check and pending retries, and deletes the check round state. Preserves settings. |
+| Uninstallation | Deletes `kntnt_ad_attr_gads_version` option, `kntnt_ad_attr_gads_settings` option, `kntnt_ad_attr_gads_connection_check` option, scheduled connection checks, and all transients. |
 
 **Migrator pattern:** Version-based migrations in `migrations/X.Y.Z.php`. Each file returns `function(\wpdb $wpdb): void`. Migrator compares `kntnt_ad_attr_gads_version` option with the plugin header version on `plugins_loaded` and runs pending files in order. The `migrations/` directory does not exist yet — it will be created when the first migration is needed.
 
@@ -358,7 +370,7 @@ kntnt-ad-attribution-gads/
 ├── kntnt-ad-attribution-gads.php      ← Main plugin file (version header, PHP check, bootstrap)
 ├── autoloader.php                     ← PSR-4 autoloader for Kntnt\Ad_Attribution_Gads namespace
 ├── install.php                        ← Activation script (runs Migrator)
-├── uninstall.php                      ← Uninstall script (removes option + transients)
+├── uninstall.php                      ← Uninstall script (removes options, transients, scheduled checks)
 ├── LICENSE                            ← GPL-2.0-or-later
 ├── README.md                          ← This file
 ├── CLAUDE.md                          ← AI-focused codebase guidance
@@ -371,6 +383,7 @@ kntnt-ad-attribution-gads/
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
 │   ├── Settings_Page.php             ← Admin settings page (3 sections: credentials, action, defaults)
 │   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
+│   ├── Connection_Monitor.php        ← Weekly background connection check, retries, failure email
 │   └── Google_Ads_Client.php         ← Standalone HTTP client for Google Ads REST API
 ├── js/
 │   └── settings-page.js              ← Settings page dynamic UI and REST API calls
@@ -392,7 +405,8 @@ kntnt-ad-attribution-gads/
         ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
         ├── BootstrapSafetyTest.php    ← Try-catch safety wrapper tests
         ├── GoogleAdsClientTest.php    ← API client token/upload/OAuth2 tests
-        └── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
+        ├── ConversionReporterTest.php ← Conversion reporter register/enqueue/process/transient tests
+        └── ConnectionMonitorTest.php  ← Weekly check scheduling, DST, retries, email tests
 ```
 
 ### Naming Conventions

@@ -82,6 +82,14 @@ final class Plugin {
 	public readonly Conversion_Reporter $conversion_reporter;
 
 	/**
+	 * Weekly connection monitor component instance.
+	 *
+	 * @var Connection_Monitor
+	 * @since 1.10.0
+	 */
+	public readonly Connection_Monitor $connection_monitor;
+
+	/**
 	 * Cached plugin metadata from header.
 	 *
 	 * @var array|null
@@ -125,6 +133,7 @@ final class Plugin {
 
 		$this->settings_page        = new Settings_Page( $this->settings );
 		$this->conversion_reporter  = new Conversion_Reporter( $this->settings, $core_logger );
+		$this->connection_monitor   = new Connection_Monitor( $this->settings, $core_logger );
 
 		// Register WordPress hooks.
 		$this->register_hooks();
@@ -266,6 +275,12 @@ final class Plugin {
 		// Register conversion reporter for Google Ads offline upload.
 		add_filter( 'kntnt_ad_attr_conversion_reporters', [ $this->conversion_reporter, 'register' ] );
 
+		// Keep the weekly connection check scheduled, including on sites
+		// updated from a version without it, and run its attempts.
+		add_action( 'init', [ $this->connection_monitor, 'ensure_scheduled' ] );
+		add_action( Connection_Monitor::WEEKLY_HOOK, [ $this->connection_monitor, 'run_weekly' ] );
+		add_action( Connection_Monitor::RETRY_HOOK, [ $this->connection_monitor, 'run_retry' ], 10, 2 );
+
 		// Reset failed queue jobs when settings are updated with valid credentials.
 		add_action( 'update_option_' . Settings::OPTION_KEY, [ $this, 'on_settings_updated' ], 10, 2 );
 
@@ -314,8 +329,9 @@ final class Plugin {
 	/**
 	 * Handles plugin deactivation cleanup.
 	 *
-	 * Removes transient resources while preserving persistent data
-	 * (options) for potential reactivation.
+	 * Removes transient resources, scheduled connection checks, and the
+	 * check round state while preserving settings for potential
+	 * reactivation.
 	 *
 	 * @return void
 	 * @since 0.1.0
@@ -333,6 +349,9 @@ final class Plugin {
 				'_transient_timeout_kntnt_ad_attr_gads_%',
 			),
 		);
+
+		// Stop the weekly connection check; activation reschedules it.
+		Connection_Monitor::unschedule();
 	}
 
 	/**

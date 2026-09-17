@@ -170,9 +170,60 @@ describe('Plugin::deactivate()', function () {
 
         $wpdb->shouldReceive('query')->once()->with('SQL')->andReturn(3);
 
+        Functions\when('wp_unschedule_hook')->justReturn(1);
+        Functions\when('delete_option')->justReturn(true);
+
         Plugin::deactivate();
 
         expect(true)->toBeTrue();
+    });
+
+    it('removes scheduled connection checks and their round state', function () {
+        $wpdb = \Tests\Helpers\TestFactory::wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+        $wpdb->shouldReceive('prepare')->andReturn('SQL');
+        $wpdb->shouldReceive('query')->andReturn(0);
+
+        Functions\expect('wp_unschedule_hook')->once()->with('kntnt_ad_attr_gads_weekly_connection_check');
+        Functions\expect('wp_unschedule_hook')->once()->with('kntnt_ad_attr_gads_connection_check_retry');
+        Functions\expect('delete_option')->once()->with('kntnt_ad_attr_gads_connection_check');
+
+        Plugin::deactivate();
+
+        expect(true)->toBeTrue();
+    });
+
+});
+
+// ─── uninstall.php ───
+
+describe('uninstall.php', function () {
+
+    afterEach(function () {
+        unset($GLOBALS['wpdb']);
+    });
+
+    it('removes scheduled connection checks and their round state', function () {
+        if (!defined('WP_UNINSTALL_PLUGIN')) {
+            define('WP_UNINSTALL_PLUGIN', 'kntnt-ad-attribution-gads/kntnt-ad-attribution-gads.php');
+        }
+
+        $wpdb = \Tests\Helpers\TestFactory::wpdb();
+        $GLOBALS['wpdb'] = $wpdb;
+        $wpdb->shouldReceive('prepare')->andReturn('SQL');
+        $wpdb->shouldReceive('query')->andReturn(0);
+
+        $deleted = [];
+        Functions\when('delete_option')->alias(function (string $key) use (&$deleted) {
+            $deleted[] = $key;
+            return true;
+        });
+        Functions\expect('wp_unschedule_hook')->once()->with('kntnt_ad_attr_gads_weekly_connection_check');
+        Functions\expect('wp_unschedule_hook')->once()->with('kntnt_ad_attr_gads_connection_check_retry');
+
+        require dirname(__DIR__, 2) . '/uninstall.php';
+
+        expect($deleted)->toContain('kntnt_ad_attr_gads_connection_check', 'kntnt_ad_attr_gads_settings', 'kntnt_ad_attr_gads_version');
     });
 
 });
