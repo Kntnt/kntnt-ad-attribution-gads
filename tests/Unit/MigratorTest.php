@@ -13,34 +13,23 @@ use Kntnt\Ad_Attribution_Gads\Plugin;
 use Brain\Monkey\Functions;
 use Tests\Helpers\TestFactory;
 
-/**
- * Resets Plugin static state so each test starts clean.
- */
-function resetPluginStatics(): void {
-    $ref = new ReflectionClass(Plugin::class);
-
-    $pluginData = $ref->getProperty('plugin_data');
-    $pluginData->setValue(null, null);
-
-    $pluginFile = $ref->getProperty('plugin_file');
-    $pluginFile->setValue(null, null);
-
-    $pluginSlug = $ref->getProperty('plugin_slug');
-    $pluginSlug->setValue(null, null);
-
-    // Also reset the singleton instance to prevent cross-test leakage.
-    $instance = $ref->getProperty('instance');
-    $instance->setValue(null, null);
-}
-
 describe('Migrator::run()', function () {
 
-    beforeEach(function () {
-        resetPluginStatics();
+    // Migrator reads the version from the plugin data, which is cached from
+    // the plugin file, so all of Plugin's statics start and end clean.
+    $clean_statics = [
+        'plugin_data' => null,
+        'plugin_file' => null,
+        'plugin_slug' => null,
+        'instance'    => null,
+    ];
+
+    beforeEach(function () use ($clean_statics) {
+        set_plugin_statics($clean_statics);
     });
 
-    afterEach(function () {
-        resetPluginStatics();
+    afterEach(function () use ($clean_statics) {
+        set_plugin_statics($clean_statics);
     });
 
     it('does nothing when stored version >= current', function () {

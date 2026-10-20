@@ -19,24 +19,18 @@ use Kntnt\Ad_Attribution_Gads\Connection_Monitor;
 use Kntnt\Ad_Attribution_Gads\Plugin;
 
 /**
- * Sets a static property of the add-on's Plugin class.
- *
- * The bootstrap creates the singleton and sets the plugin file, so both
- * must be reset around each test to keep other test files unaffected.
- */
-function set_plugin_static(string $property, mixed $value): void {
-    (new ReflectionProperty(Plugin::class, $property))->setValue(null, $value);
-}
-
-/**
  * Includes the main plugin file and runs its `plugins_loaded` callback.
  *
- * @param string $core_version Version the core plugin reports.
+ * @param string|Throwable $core_version Version the core plugin reports, or
+ *                                       what its get_version() throws.
  *
  * @return list<callable> The `admin_notices` callbacks added while booting.
  */
-function boot_against_core(string $core_version): array {
-    \Patchwork\redefine('Kntnt\Ad_Attribution\Plugin::get_version', fn () => $core_version);
+function boot_against_core(string|Throwable $core_version): array {
+    \Patchwork\redefine(
+        'Kntnt\Ad_Attribution\Plugin::get_version',
+        fn () => $core_version instanceof Throwable ? throw $core_version : $core_version,
+    );
     \Patchwork\redefine(
         'Kntnt\Ad_Attribution\Plugin::get_instance',
         fn () => (object) ['logger' => Mockery::mock(Logger::class)],
@@ -86,6 +80,11 @@ function boot_against_core(string $core_version): array {
 
 /**
  * Renders an `admin_notices` callback and returns its output.
+ *
+ * @param callable $notice An `admin_notices` callback returned by
+ *                         boot_against_core().
+ *
+ * @return string The HTML the callback prints.
  */
 function render_notice(callable $notice): string {
     ob_start();
@@ -95,14 +94,15 @@ function render_notice(callable $notice): string {
 
 describe('Core version gate', function () {
 
+    // The bootstrap creates the singleton and sets the plugin file, so both
+    // are reset around each test to keep other test files unaffected.
     beforeEach(function () {
         $this->plugin_file = (new ReflectionProperty(Plugin::class, 'plugin_file'))->getValue();
-        set_plugin_static('instance', null);
+        set_plugin_statics(['instance' => null]);
     });
 
     afterEach(function () {
-        set_plugin_static('instance', null);
-        set_plugin_static('plugin_file', $this->plugin_file);
+        set_plugin_statics(['instance' => null, 'plugin_file' => $this->plugin_file]);
     });
 
     it('leaves the add-on inert when the core is older than 1.10.0', function (string $core_version) {
@@ -121,6 +121,33 @@ describe('Core version gate', function () {
 
         expect($notices)->toHaveCount(1);
         expect(render_notice($notices[0]))->toContain('1.10.0')->toContain('1.9.1');
+    });
+
+    it('tells admins the installed core version is unknown when its header has none', function () {
+        $notices = boot_against_core('');
+
+        expect($notices)->toHaveCount(1);
+        expect(render_notice($notices[0]))
+            ->toContain('1.10.0')
+            ->toContain('an unknown version')
+            ->not->toContain(' .');
+    });
+
+    it('catches an error from reading the core version like any other initialization error', function () {
+        $logged = [];
+        \Patchwork\redefine('error_log', function (string $message) use (&$logged): bool {
+            $logged[] = $message;
+            return true;
+        });
+
+        $notices = boot_against_core(new RuntimeException('Core header unreadable'));
+
+        expect($logged)->toHaveCount(1);
+        expect($logged[0])->toContain('Core header unreadable');
+        expect($notices)->toHaveCount(1);
+        expect(render_notice($notices[0]))->toContain('failed to initialize: Core header unreadable');
+        expect(has_filter('kntnt_ad_attr_click_id_capturers'))->toBeFalse();
+        expect(has_filter('kntnt_ad_attr_conversion_reporters'))->toBeFalse();
     });
 
     it('initializes as before when the core is 1.10.0 or newer', function (string $core_version) {

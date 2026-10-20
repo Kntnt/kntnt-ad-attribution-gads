@@ -15,15 +15,6 @@ declare(strict_types=1);
 use Kntnt\Ad_Attribution_Gads\Plugin;
 
 /**
- * Resets the Plugin singleton so each test starts with a clean slate.
- */
-function reset_plugin_singleton(): void {
-    $ref  = new ReflectionClass(Plugin::class);
-    $prop = $ref->getProperty('instance');
-    $prop->setValue(null, null);
-}
-
-/**
  * Simulates the safe initialization pattern from the main plugin file.
  *
  * Wraps Plugin::get_instance() in try-catch exactly as the bootstrap does,
@@ -43,11 +34,11 @@ function simulate_safe_init(): ?\Throwable {
 describe('Bootstrap safety wrapper', function () {
 
     beforeEach(function () {
-        reset_plugin_singleton();
+        set_plugin_statics(['instance' => null]);
     });
 
     afterEach(function () {
-        reset_plugin_singleton();
+        set_plugin_statics(['instance' => null]);
         \Patchwork\restoreAll();
     });
 
