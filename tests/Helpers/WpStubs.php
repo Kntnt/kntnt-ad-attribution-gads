@@ -106,6 +106,16 @@ if (!class_exists('Kntnt\\Ad_Attribution\\Logger')) {
     }');
 }
 
+// Autoload the core singleton stub on first use, during a test, when
+// Patchwork's stream wrapper is active. Files Pest includes at boot (this
+// one, tests/Pest.php, everything in tests/Helpers) are not preprocessed, so
+// Patchwork could not redefine the stub's methods if it were defined here.
+spl_autoload_register(static function (string $class_name): void {
+    if ($class_name === 'Kntnt\\Ad_Attribution\\Plugin') {
+        require dirname(__DIR__) . '/Stubs/CorePlugin.php';
+    }
+});
+
 // ─── WordPress helper function stubs ───
 
 if (!function_exists('wp_parse_args')) {
