@@ -21,12 +21,16 @@ use Kntnt\Ad_Attribution_Gads\Plugin;
 /**
  * Includes the main plugin file and runs its `plugins_loaded` callback.
  *
- * @param string $core_version Version the core plugin reports.
+ * @param string|Throwable $core_version Version the core plugin reports, or
+ *                                       what its get_version() throws.
  *
  * @return list<callable> The `admin_notices` callbacks added while booting.
  */
-function boot_against_core(string $core_version): array {
-    \Patchwork\redefine('Kntnt\Ad_Attribution\Plugin::get_version', fn () => $core_version);
+function boot_against_core(string|Throwable $core_version): array {
+    \Patchwork\redefine(
+        'Kntnt\Ad_Attribution\Plugin::get_version',
+        fn () => $core_version instanceof Throwable ? throw $core_version : $core_version,
+    );
     \Patchwork\redefine(
         'Kntnt\Ad_Attribution\Plugin::get_instance',
         fn () => (object) ['logger' => Mockery::mock(Logger::class)],
@@ -127,6 +131,23 @@ describe('Core version gate', function () {
             ->toContain('1.10.0')
             ->toContain('an unknown version')
             ->not->toContain(' .');
+    });
+
+    it('catches an error from reading the core version like any other initialization error', function () {
+        $logged = [];
+        \Patchwork\redefine('error_log', function (string $message) use (&$logged): bool {
+            $logged[] = $message;
+            return true;
+        });
+
+        $notices = boot_against_core(new RuntimeException('Core header unreadable'));
+
+        expect($logged)->toHaveCount(1);
+        expect($logged[0])->toContain('Core header unreadable');
+        expect($notices)->toHaveCount(1);
+        expect(render_notice($notices[0]))->toContain('failed to initialize: Core header unreadable');
+        expect(has_filter('kntnt_ad_attr_click_id_capturers'))->toBeFalse();
+        expect(has_filter('kntnt_ad_attr_conversion_reporters'))->toBeFalse();
     });
 
     it('initializes as before when the core is 1.10.0 or newer', function (string $core_version) {
