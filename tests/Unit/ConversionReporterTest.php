@@ -132,6 +132,24 @@ describe('Conversion_Reporter::enqueue()', function () {
         expect($payloads[0]['not_before'])->toBe($recent_capture + 21600);
     });
 
+    it('defers the upload six hours from the attributed click, not from the conversion', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
+
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+
+        // The shape core >= 1.10.0 passes: the click IDs of the click the
+        // conversion is attributed to, with captured_at set to that click's
+        // clicked_at (2023-11-14 22:13:20 UTC). The conversion is a day later.
+        $click_ids = ['h1' => ['google_ads' => ['id' => 'G1', 'captured_at' => 1700000000]]];
+        $context   = ['timestamp' => '2023-11-15T22:13:20+00:00'];
+
+        $payloads = $reporter->enqueue(['h1' => 1.0], $click_ids, [], $context);
+
+        expect($payloads[0]['payload']['gclid'])->toBe('G1');
+        expect($payloads[0]['not_before'])->toBe(1700021600);
+    });
+
     it('produces past not_before for old clicks (immediate processing)', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
