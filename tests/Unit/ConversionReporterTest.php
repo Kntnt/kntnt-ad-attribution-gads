@@ -1194,6 +1194,85 @@ describe('Conversion_Reporter::process()', function () {
         \Patchwork\restoreAll();
     });
 
+    it('returns true when Google Ads rejects the conversion with EXPIRED_EVENT', function () {
+        $settings = Mockery::mock(Settings::class);
+        $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());
+
+        Functions\when('get_transient')->justReturn('cached_token');
+        Functions\when('is_wp_error')->justReturn(false);
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(
+            fn ($response) => $response['response']['code'] ?? 0,
+        );
+        Functions\when('wp_remote_retrieve_body')->alias(
+            fn ($response) => $response['body'] ?? '',
+        );
+
+        // Partial failure as returned by Google Ads API v23 for a click that
+        // is older than the conversion action's click-through window.
+        $message = "The imported event can't be recorded because its click occurred before this conversion's click-through window. Make sure you import the most recent data.";
+        Functions\expect('wp_remote_post')
+            ->once()
+            ->andReturn([
+                'response' => ['code' => 200],
+                'body'     => json_encode([
+                    'partialFailureError' => [
+                        'code'    => 3,
+                        'message' => "{$message}, at conversions[0].gclid",
+                        'details' => [
+                            [
+                                '@type'  => 'type.googleapis.com/google.ads.googleads.v23.errors.GoogleAdsFailure',
+                                'errors' => [
+                                    [
+                                        'errorCode' => ['conversionUploadError' => 'EXPIRED_EVENT'],
+                                        'message'   => $message,
+                                        'location'  => [
+                                            'fieldPathElements' => [
+                                                ['fieldName' => 'conversions', 'index' => 0],
+                                                ['fieldName' => 'gclid'],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'results' => [new stdClass()],
+                ]),
+            ]);
+
+        Functions\expect('delete_transient')
+            ->once()
+            ->with('kntnt_ad_attr_gads_credential_error');
+
+        $logged = null;
+        \Patchwork\redefine('error_log', function (string $log_message) use (&$logged) {
+            $logged = $log_message;
+            return true;
+        });
+
+        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
+        $result   = $reporter->process([
+            'gclid'                => 'gclid_expired',
+            'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+            'attribution_fraction' => 1.0,
+            'customer_id'          => '1234567890',
+            'conversion_action_id' => '99',
+            'conversion_value'     => '1000',
+            'currency_code'        => 'SEK',
+            'developer_token'      => 'dev_token',
+            'client_id'            => 'client.apps.googleusercontent.com',
+            'client_secret'        => 'secret',
+            'refresh_token'        => 'refresh_abc',
+            'login_customer_id'    => '',
+        ]);
+
+        expect($result)->toBeTrue();
+        expect($logged)->toContain('EXPIRED_EVENT');
+
+        \Patchwork\restoreAll();
+    });
+
     it('sets credential error transient when credentials are missing', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(empty_settings());

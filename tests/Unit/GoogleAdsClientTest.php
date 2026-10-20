@@ -47,6 +47,95 @@ function stub_response_helpers(): void {
     );
 }
 
+/**
+ * Message Google Ads API v23 returns for ConversionUploadError EXPIRED_EVENT.
+ */
+const EXPIRED_EVENT_MESSAGE = "The imported event can't be recorded because its click occurred before this conversion's click-through window. Make sure you import the most recent data.";
+
+/**
+ * Builds a REST `partialFailureError` in the shape Google Ads API v23 returns.
+ *
+ * The error is a google.rpc.Status whose `details` holds a single
+ * GoogleAdsFailure. Each error is given as [error code category, code, message],
+ * e.g. ['conversionUploadError', 'EXPIRED_EVENT', '...'].
+ */
+function partial_failure_error(array ...$errors): array {
+    $failure_errors = array_map(
+        fn (array $error) => [
+            'errorCode' => [$error[0] => $error[1]],
+            'message'   => $error[2],
+            'location'  => [
+                'fieldPathElements' => [
+                    ['fieldName' => 'conversions', 'index' => 0],
+                    ['fieldName' => 'gclid'],
+                ],
+            ],
+        ],
+        $errors,
+    );
+
+    return [
+        'code'    => 3,
+        'message' => count($errors) === 1
+            ? "{$errors[0][2]}, at conversions[0].gclid"
+            : "Multiple errors in 'conversions' field. Details are provided in the 'details' field.",
+        'details' => [
+            [
+                '@type'  => 'type.googleapis.com/google.ads.googleads.v23.errors.GoogleAdsFailure',
+                'errors' => $failure_errors,
+            ],
+        ],
+    ];
+}
+
+/**
+ * Uploads a conversion against an API stub that answers with the given partial failure.
+ */
+function upload_with_partial_failure(array $partial_failure_error): array {
+    Functions\when('get_transient')->justReturn('cached_token');
+    Functions\when('is_wp_error')->justReturn(false);
+    stub_wp_json_encode();
+    stub_response_helpers();
+
+    // Failed rows come back as empty objects in `results`.
+    Functions\expect('wp_remote_post')
+        ->once()
+        ->andReturn([
+            'response' => ['code' => 200],
+            'body'     => json_encode([
+                'partialFailureError' => $partial_failure_error,
+                'results'             => [new stdClass()],
+            ]),
+        ]);
+
+    return make_client()->upload_click_conversion(
+        'test_gclid',
+        'customers/1234567890/conversionActions/99',
+        '2026-01-15 10:30:00+01:00',
+        100.0,
+        'SEK',
+    );
+}
+
+/**
+ * ConversionUploadError codes in the permanent set, with the messages
+ * Google Ads API v23 documents for them (verbatim, typos included).
+ */
+dataset('permanent upload errors', [
+    'UNPARSEABLE_GCLID'                                  => ['UNPARSEABLE_GCLID', 'The imported gclid could not be decoded.'],
+    'UNPARSEABLE_GBRAID'                                 => ['UNPARSEABLE_GBRAID', "Can't parse event import data. Check if your gbraid parameter was not modified and try again."],
+    'UNPARSEABLE_WBRAID'                                 => ['UNPARSEABLE_WBRAID', "Can't parse event import data. Check if your wbraid parameter was not modified and try again."],
+    'GBRAID_WBRAID_BOTH_SET'                             => ['GBRAID_WBRAID_BOTH_SET', "Can't use both gbraid and wbraid parameters. Use only 1 and try again."],
+    'CONVERSION_PRECEDES_EVENT'                          => ['CONVERSION_PRECEDES_EVENT', 'The imported event has a conversion_date_time that precedes the click. Make sure your conversion_date_time is correct and try again.'],
+    'EXPIRED_EVENT'                                      => ['EXPIRED_EVENT', EXPIRED_EVENT_MESSAGE],
+    'EVENT_NOT_FOUND'                                    => ['EVENT_NOT_FOUND', 'The imported event could not be attributed to a click. This may be because the event did not come from a Google Ads campaign.'],
+    'CLICK_NOT_FOUND'                                    => ['CLICK_NOT_FOUND', "The email address or phone number for this event can't be matched to a click. This may be because it didn't come from a Google Ads campaign, and you can safely ignore this warning. If this includes more imported events than is expected, you may need to check your setup."],
+    'CLICK_CONVERSION_ALREADY_EXISTS'                    => ['CLICK_CONVERSION_ALREADY_EXISTS', 'The imported event has the same click and conversion_date_time as an existing conversion. Use a unique conversion_date_time or order ID for each unique event and try again.'],
+    'DUPLICATE_CLICK_CONVERSION_IN_REQUEST'              => ['DUPLICATE_CLICK_CONVERSION_IN_REQUEST', 'Multiple events have the same click and conversion_date_time. Make sure your conversion_date_time is correctly configured and try again.'],
+    'CONVERSION_TRACKING_NOT_ENABLED_AT_IMPRESSION_TIME' => ['CONVERSION_TRACKING_NOT_ENABLED_AT_IMPRESSION_TIME', "At the time of the click, conversion tracking was not enabled in the effective conversion account of the click's Google Ads account."],
+    'CONVERSION_NOT_COMPLIANT_WITH_ATT_POLICY'           => ['CONVERSION_NOT_COMPLIANT_WITH_ATT_POLICY', "The connversion can't be imported because the conversion source didn't comply with Apple App Transparency Tracking (ATT) policies or because the customer didn't consent to tracking."],
+]);
+
 // ─── test_connection() ───
 
 describe('Google_Ads_Client::test_connection()', function () {
@@ -702,82 +791,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         expect($result['permanent_failure'])->toBeFalse();
     });
 
-    it('flags CLICK_NOT_FOUND as permanent failure', function () {
-
-        // Cached token available.
-        Functions\expect('get_transient')
-            ->once()
-            ->with('kntnt_ad_attr_gads_access_token')
-            ->andReturn('cached_token');
-
-        stub_wp_json_encode();
-        stub_response_helpers();
-
-        Functions\expect('wp_remote_post')
-            ->once()
-            ->andReturn([
-                'response' => ['code' => 200],
-                'body'     => json_encode([
-                    'partialFailureError' => [
-                        'code'    => 3,
-                        'message' => 'The imported event could not be attributed to a click. This may be because the event did not come from a Google Ads campaign., at conversions[0].gclid',
-                    ],
-                ]),
-            ]);
-
-        Functions\expect('is_wp_error')->once()->andReturn(false);
-
-        $client = make_client();
-        $result = $client->upload_click_conversion(
-            'test_gclid',
-            'customers/1234567890/conversionActions/99',
-            '2026-01-15 10:30:00+01:00',
-            100.0,
-            'SEK',
-        );
-
-        expect($result['success'])->toBeFalse();
-        expect($result['permanent_failure'])->toBeTrue();
-    });
-
-    it('flags CLICK_CONVERSION_ALREADY_EXISTS as permanent failure', function () {
-
-        Functions\expect('get_transient')
-            ->once()
-            ->with('kntnt_ad_attr_gads_access_token')
-            ->andReturn('cached_token');
-
-        stub_wp_json_encode();
-        stub_response_helpers();
-
-        Functions\expect('wp_remote_post')
-            ->once()
-            ->andReturn([
-                'response' => ['code' => 200],
-                'body'     => json_encode([
-                    'partialFailureError' => [
-                        'code'    => 3,
-                        'message' => 'This conversion already exists.',
-                    ],
-                ]),
-            ]);
-
-        Functions\expect('is_wp_error')->once()->andReturn(false);
-
-        $client = make_client();
-        $result = $client->upload_click_conversion(
-            'test_gclid',
-            'customers/1234567890/conversionActions/99',
-            '2026-01-15 10:30:00+01:00',
-            100.0,
-            'SEK',
-        );
-
-        expect($result['success'])->toBeFalse();
-        expect($result['permanent_failure'])->toBeTrue();
-    });
-
-    it('does not flag retryable errors as permanent', function () {
+    it('does not flag the TOO_RECENT_EVENT message as permanent when details are missing', function () {
 
         Functions\expect('get_transient')
             ->once()
@@ -1151,6 +1165,110 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         expect($result['success'])->toBeTrue();
     });
+
+});
+
+// ─── upload_click_conversion() partial failure classification ───
+
+describe('Google_Ads_Client::upload_click_conversion() partial failure classification', function () {
+
+    it('flags EXPIRED_EVENT as permanent failure', function () {
+        $result = upload_with_partial_failure(partial_failure_error(
+            ['conversionUploadError', 'EXPIRED_EVENT', EXPIRED_EVENT_MESSAGE],
+        ));
+
+        expect($result['success'])->toBeFalse();
+        expect($result['permanent_failure'])->toBeTrue();
+    });
+
+    it('flags every code in the permanent set as permanent failure', function (string $code, string $message) {
+        $result = upload_with_partial_failure(partial_failure_error(
+            ['conversionUploadError', $code, $message],
+        ));
+
+        expect($result['permanent_failure'])->toBeTrue();
+    })->with('permanent upload errors');
+
+    it('does not flag retryable errors as permanent failure', function (string $category, string $code, string $message) {
+        $result = upload_with_partial_failure(partial_failure_error(
+            [$category, $code, $message],
+        ));
+
+        expect($result['success'])->toBeFalse();
+        expect($result['permanent_failure'])->toBeFalse();
+    })->with([
+        'TOO_RECENT_EVENT'               => ['conversionUploadError', 'TOO_RECENT_EVENT', 'The click associated with the given identifier or iOS URL parameter occurred less than 6 hours ago. Retry after 6 hours have passed.'],
+        'INVALID_CONVERSION_ACTION_TYPE' => ['conversionUploadError', 'INVALID_CONVERSION_ACTION_TYPE', "The conversion action specified in the upload request isn't set up for uploading conversions."],
+        'NO_CONVERSION_ACTION_FOUND'     => ['conversionUploadError', 'NO_CONVERSION_ACTION_FOUND', "The conversion action specified in the upload request cannot be found. Make sure it's available in this account."],
+        'UNAUTHORIZED_CUSTOMER'          => ['conversionUploadError', 'UNAUTHORIZED_CUSTOMER', "The click ID or call is associated with an Ads account you don't have access to. Make sure you import conversions for accounts managed by your manager account."],
+        'unknown code'                   => ['conversionUploadError', 'SOME_FUTURE_UPLOAD_ERROR', 'An error this plugin does not know about yet.'],
+        'non-conversionUploadError'      => ['fieldError', 'REQUIRED', 'The required field was not present.'],
+    ]);
+
+    it('does not flag a mix of permanent and retryable errors as permanent failure', function () {
+        $result = upload_with_partial_failure(partial_failure_error(
+            ['conversionUploadError', 'EXPIRED_EVENT', EXPIRED_EVENT_MESSAGE],
+            ['conversionUploadError', 'TOO_RECENT_CONVERSION_ACTION', "Can't import events to a conversion action that was just created. Try importing again in 6 hours."],
+        ));
+
+        expect($result['permanent_failure'])->toBeFalse();
+    });
+
+    it('falls back to the message and flags EXPIRED_EVENT as permanent when details are missing', function () {
+        $result = upload_with_partial_failure([
+            'code'    => 3,
+            'message' => EXPIRED_EVENT_MESSAGE . ', at conversions[0].gclid',
+        ]);
+
+        expect($result['permanent_failure'])->toBeTrue();
+    });
+
+    it('falls back to the message and treats an unrecognised message as retryable when details are missing', function () {
+        $result = upload_with_partial_failure([
+            'code'    => 3,
+            'message' => 'Something unexpected went wrong with this conversion., at conversions[0].gclid',
+        ]);
+
+        expect($result['permanent_failure'])->toBeFalse();
+    });
+
+    it('prefixes the returned error with the error code', function () {
+        $result = upload_with_partial_failure(partial_failure_error(
+            ['conversionUploadError', 'EXPIRED_EVENT', EXPIRED_EVENT_MESSAGE],
+        ));
+
+        expect($result['error'])->toBe('EXPIRED_EVENT: ' . EXPIRED_EVENT_MESSAGE);
+    });
+
+    it('lists every error code in the returned error', function () {
+        $result = upload_with_partial_failure(partial_failure_error(
+            ['conversionUploadError', 'EXPIRED_EVENT', EXPIRED_EVENT_MESSAGE],
+            ['conversionUploadError', 'TOO_RECENT_CONVERSION_ACTION', "Can't import events to a conversion action that was just created. Try importing again in 6 hours."],
+        ));
+
+        expect($result['error'])->toBe(
+            'EXPIRED_EVENT: ' . EXPIRED_EVENT_MESSAGE
+            . "; TOO_RECENT_CONVERSION_ACTION: Can't import events to a conversion action that was just created. Try importing again in 6 hours.",
+        );
+    });
+
+    it('returns the top-level message unchanged when details are missing', function () {
+        $result = upload_with_partial_failure([
+            'code'    => 3,
+            'message' => EXPIRED_EVENT_MESSAGE . ', at conversions[0].gclid',
+        ]);
+
+        expect($result['error'])->toBe(EXPIRED_EVENT_MESSAGE . ', at conversions[0].gclid');
+    });
+
+    it('falls back to the message for every code in the permanent set when details are missing', function (string $code, string $message) {
+        $result = upload_with_partial_failure([
+            'code'    => 3,
+            'message' => "{$message}, at conversions[0].gclid",
+        ]);
+
+        expect($result['permanent_failure'])->toBeTrue();
+    })->with('permanent upload errors');
 
 });
 
