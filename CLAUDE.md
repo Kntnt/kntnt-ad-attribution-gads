@@ -128,7 +128,8 @@ kntnt-ad-attribution-gads/
     ├── Pest.php                       ← Pest configuration
     ├── Helpers/
     │   ├── WpStubs.php                ← WordPress constants and helper stubs
-    │   └── TestFactory.php            ← Mock $wpdb factory
+    │   ├── TestFactory.php            ← Mock $wpdb factory
+    │   └── PluginStatics.php          ← set_plugin_statics(): resets the add-on Plugin's statics
     ├── Stubs/
     │   └── CorePlugin.php             ← Redefinable stub of \Kntnt\Ad_Attribution\Plugin (autoloaded)
     └── Unit/

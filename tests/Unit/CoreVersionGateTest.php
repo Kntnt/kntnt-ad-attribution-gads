@@ -19,16 +19,6 @@ use Kntnt\Ad_Attribution_Gads\Connection_Monitor;
 use Kntnt\Ad_Attribution_Gads\Plugin;
 
 /**
- * Sets a static property of the add-on's Plugin class.
- *
- * The bootstrap creates the singleton and sets the plugin file, so both
- * must be reset around each test to keep other test files unaffected.
- */
-function set_plugin_static(string $property, mixed $value): void {
-    (new ReflectionProperty(Plugin::class, $property))->setValue(null, $value);
-}
-
-/**
  * Includes the main plugin file and runs its `plugins_loaded` callback.
  *
  * @param string $core_version Version the core plugin reports.
@@ -86,6 +76,11 @@ function boot_against_core(string $core_version): array {
 
 /**
  * Renders an `admin_notices` callback and returns its output.
+ *
+ * @param callable $notice An `admin_notices` callback returned by
+ *                         boot_against_core().
+ *
+ * @return string The HTML the callback prints.
  */
 function render_notice(callable $notice): string {
     ob_start();
@@ -95,14 +90,15 @@ function render_notice(callable $notice): string {
 
 describe('Core version gate', function () {
 
+    // The bootstrap creates the singleton and sets the plugin file, so both
+    // are reset around each test to keep other test files unaffected.
     beforeEach(function () {
         $this->plugin_file = (new ReflectionProperty(Plugin::class, 'plugin_file'))->getValue();
-        set_plugin_static('instance', null);
+        set_plugin_statics(['instance' => null]);
     });
 
     afterEach(function () {
-        set_plugin_static('instance', null);
-        set_plugin_static('plugin_file', $this->plugin_file);
+        set_plugin_statics(['instance' => null, 'plugin_file' => $this->plugin_file]);
     });
 
     it('leaves the add-on inert when the core is older than 1.10.0', function (string $core_version) {
