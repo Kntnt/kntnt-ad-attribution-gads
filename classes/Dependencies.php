@@ -48,7 +48,7 @@ final class Dependencies {
 	 *
 	 * Core 1.10.0 stores click IDs per click and passes reporters the click
 	 * IDs of the click a conversion is attributed to. Earlier versions pass
-	 * the latest click ID captured for the tracking URL, which is often
+	 * the latest click ID captured for the tracking URL, which may be
 	 * another visitor's gclid. Read by the bootstrap gate in the main
 	 * plugin file.
 	 *
