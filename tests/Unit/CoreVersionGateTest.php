@@ -119,6 +119,16 @@ describe('Core version gate', function () {
         expect(render_notice($notices[0]))->toContain('1.10.0')->toContain('1.9.1');
     });
 
+    it('tells admins the installed core version is unknown when its header has none', function () {
+        $notices = boot_against_core('');
+
+        expect($notices)->toHaveCount(1);
+        expect(render_notice($notices[0]))
+            ->toContain('1.10.0')
+            ->toContain('an unknown version')
+            ->not->toContain(' .');
+    });
+
     it('initializes as before when the core is 1.10.0 or newer', function (string $core_version) {
         $notices = boot_against_core($core_version);
 

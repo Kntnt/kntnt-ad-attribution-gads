@@ -85,14 +85,23 @@ add_action( 'plugins_loaded', static function (): void {
 	$core_version = \Kntnt\Ad_Attribution\Plugin::get_version();
 	if ( version_compare( $core_version, Dependencies::MIN_CORE_VERSION, '<' ) ) {
 		add_action( 'admin_notices', static function () use ( $core_version ): void {
+
+			// A core whose header has no version is blocked too, so the
+			// notice needs words for a version it cannot name.
+			$installed_version = $core_version;
+			if ( $installed_version === '' ) {
+				/* translators: Stands in for the installed Kntnt Ad Attribution version in "…, but %2$s is installed." when the plugin does not report one. */
+				$installed_version = __( 'an unknown version', 'kntnt-ad-attr-gads' );
+			}
+
 			printf(
 				'<div class="notice notice-error"><p>%s</p></div>',
 				esc_html(
 					sprintf(
-						/* translators: 1: Required Kntnt Ad Attribution version, 2: Installed Kntnt Ad Attribution version. */
-						__( 'Kntnt Ad Attribution for Google Ads requires Kntnt Ad Attribution %1$s or later. You are running Kntnt Ad Attribution %2$s. Until you update it, Google Ads clicks are not captured and conversions are not reported to Google Ads.', 'kntnt-ad-attr-gads' ),
+						/* translators: 1: Required Kntnt Ad Attribution version, e.g. "1.10.0". 2: Installed Kntnt Ad Attribution version, e.g. "1.9.1", or "an unknown version" when the plugin does not report one. */
+						__( 'Kntnt Ad Attribution for Google Ads requires Kntnt Ad Attribution %1$s or later, but %2$s is installed. Until you update it, Google Ads clicks are not captured and conversions are not reported to Google Ads.', 'kntnt-ad-attr-gads' ),
 						Dependencies::MIN_CORE_VERSION,
-						$core_version,
+						$installed_version,
 					),
 				),
 			);
