@@ -44,6 +44,20 @@ final class Dependencies {
 	private const CORE_BASENAME = 'kntnt-ad-attribution/kntnt-ad-attribution.php';
 
 	/**
+	 * Lowest core plugin version this add-on initializes against.
+	 *
+	 * Core 1.10.0 stores click IDs per click and passes reporters the click
+	 * IDs of the click a conversion is attributed to. Earlier versions pass
+	 * the latest click ID captured for the tracking URL, which may be
+	 * another visitor's gclid. Read by the bootstrap gate in the main
+	 * plugin file.
+	 *
+	 * @var string
+	 * @since 1.11.0
+	 */
+	public const MIN_CORE_VERSION = '1.10.0';
+
+	/**
 	 * Full path to this add-on's main plugin file.
 	 *
 	 * @var string

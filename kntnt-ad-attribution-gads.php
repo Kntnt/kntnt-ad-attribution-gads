@@ -79,6 +79,27 @@ add_action( 'plugins_loaded', static function (): void {
 		return;
 	}
 
+	// Abort with an admin notice if the core plugin is too old. Registering
+	// nothing at all, as if the core were missing, guarantees that no
+	// conversion is queued through the old per-URL click-ID lookup.
+	$core_version = \Kntnt\Ad_Attribution\Plugin::get_version();
+	if ( version_compare( $core_version, Dependencies::MIN_CORE_VERSION, '<' ) ) {
+		add_action( 'admin_notices', static function () use ( $core_version ): void {
+			printf(
+				'<div class="notice notice-error"><p>%s</p></div>',
+				esc_html(
+					sprintf(
+						/* translators: 1: Required Kntnt Ad Attribution version, 2: Installed Kntnt Ad Attribution version. */
+						__( 'Kntnt Ad Attribution for Google Ads requires Kntnt Ad Attribution %1$s or later. You are running Kntnt Ad Attribution %2$s. Until you update it, Google Ads clicks are not captured and conversions are not reported to Google Ads.', 'kntnt-ad-attr-gads' ),
+						Dependencies::MIN_CORE_VERSION,
+						$core_version,
+					),
+				),
+			);
+		} );
+		return;
+	}
+
 	// Initialize the plugin inside a safety net. A fatal error here would
 	// take down the entire site, and without server access the only fix is
 	// a long chain of phone calls. The try-catch lets the rest of the site

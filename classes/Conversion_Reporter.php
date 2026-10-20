@@ -29,7 +29,7 @@ use Kntnt\Ad_Attribution\Logger;
 final class Conversion_Reporter {
 
 	/**
-	 * Seconds to delay upload after click capture (6 hours).
+	 * Seconds to delay upload after the attributed click (6 hours).
 	 *
 	 * Google Ads needs time to register the click before accepting
 	 * offline conversions. Using click time (not conversion time)
@@ -101,11 +101,12 @@ final class Conversion_Reporter {
 	 * values (resource name, attributed value) are computed at process time
 	 * so payloads remain useful even if credentials were empty at enqueue time.
 	 *
-	 * Each job is deferred by UPLOAD_DELAY_SECONDS from the click capture time
-	 * to give Google Ads time to register the click before accepting uploads.
+	 * Each job is deferred by UPLOAD_DELAY_SECONDS from the time of the
+	 * attributed click to give Google Ads time to register the click before
+	 * accepting uploads.
 	 *
 	 * @param array<string,float>  $attributions Hash => attribution fraction.
-	 * @param array<string,array<string,array{id: string, captured_at: int}>> $click_ids Hash => platform => structured click data.
+	 * @param array<string,array<string,array{id: string, captured_at: int}>> $click_ids Hash => platform => click ID captured on the hash's attributed click (core >= 1.10.0), with `captured_at` the Unix time of that click.
 	 * @param array<string,array<string,string>> $campaigns Hash => campaign data.
 	 * @param array{timestamp: string}           $context   Conversion context.
 	 *

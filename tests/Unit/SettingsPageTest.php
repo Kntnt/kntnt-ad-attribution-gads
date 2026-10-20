@@ -8,24 +8,6 @@
 
 declare(strict_types=1);
 
-// Stub the core plugin singleton so Patchwork can redefine its static method.
-// The real class lives in the core plugin which is not loaded during unit tests.
-if (!class_exists('Kntnt\Ad_Attribution\Plugin')) {
-    // phpcs:ignore
-    class_alias(
-        get_class(new class {
-            /** @var mixed */
-            public mixed $logger = null;
-
-            /** @return static */
-            public static function get_instance(): static {
-                return new static();
-            }
-        }),
-        'Kntnt\Ad_Attribution\Plugin',
-    );
-}
-
 use Kntnt\Ad_Attribution_Gads\Settings;
 use Kntnt\Ad_Attribution_Gads\Settings_Page;
 use Brain\Monkey\Functions;
