@@ -29,7 +29,7 @@ The plugin creates no custom tables, CPTs, or cookies. It schedules a weekly bac
 - Automatically captures `gclid` parameters when visitors arrive via Google Ads tracking URLs.
 - Queues and uploads conversions to Google Ads via the Offline Conversion Upload API.
 - **One upload per conversion** — clicks with zero attribution weight are never uploaded, and by default a multi-touch conversion is uploaded once, so Google Ads doesn't count one lead as several conversions. See [Multi-Touch Attribution](#multi-touch-attribution).
-- **Deferred upload** — each conversion upload is deferred by 6 hours from click capture time, giving Google Ads time to register the click. Clicks older than 6 hours are processed immediately.
+- **Deferred upload** — each conversion upload is deferred by 6 hours from the time of the attributed click, giving Google Ads time to register the click. Clicks older than 6 hours are processed immediately.
 - Resilient queuing — conversions are always queued regardless of credential status. Missing credentials are filled in from current settings when the job is processed.
 - Failed jobs are automatically reset when settings are updated with valid credentials.
 - **Test Connection** button verifies all credentials — OAuth2 tokens, Customer ID, Developer Token, Login Customer ID, and Conversion Action ID — in a single click. Uses current form values, so you can test before saving.
