@@ -1214,6 +1214,24 @@ describe('Google_Ads_Client::upload_click_conversion() partial failure classific
         expect($result['permanent_failure'])->toBeFalse();
     });
 
+    it('does not flag a permanent code next to an error without a code as permanent failure', function () {
+        $result = upload_with_partial_failure(partial_failure_error(
+            ['conversionUploadError', 'EXPIRED_EVENT', EXPIRED_EVENT_MESSAGE],
+            ['conversionUploadError', '', 'An error whose code could not be read.'],
+        ));
+
+        expect($result['permanent_failure'])->toBeFalse();
+    });
+
+    it('falls back to the message when no error in the details carries a code', function () {
+        $result = upload_with_partial_failure(partial_failure_error(
+            ['conversionUploadError', '', EXPIRED_EVENT_MESSAGE],
+        ));
+
+        expect($result['permanent_failure'])->toBeTrue();
+        expect($result['error'])->toBe(EXPIRED_EVENT_MESSAGE . ', at conversions[0].gclid');
+    });
+
     it('falls back to the message and flags EXPIRED_EVENT as permanent when details are missing', function () {
         $result = upload_with_partial_failure([
             'code'    => 3,
