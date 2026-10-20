@@ -57,6 +57,58 @@ final class Google_Ads_Client {
 	private const TOKEN_TTL_MARGIN = 300;
 
 	/**
+	 * ConversionUploadError codes that make an upload permanently fail.
+	 *
+	 * Each concerns this conversion's own click or timing, so neither a
+	 * retry nor a settings change can make it succeed. Errors about the
+	 * account, credentials or conversion action configuration are left out
+	 * on purpose: they stay retryable, end as failed in the queue, and are
+	 * retried when the settings are saved.
+	 *
+	 * @var string[]
+	 * @since 1.10.1
+	 */
+	private const PERMANENT_UPLOAD_ERROR_CODES = [
+		'UNPARSEABLE_GCLID',
+		'UNPARSEABLE_GBRAID',
+		'UNPARSEABLE_WBRAID',
+		'GBRAID_WBRAID_BOTH_SET',
+		'CONVERSION_PRECEDES_EVENT',
+		'EXPIRED_EVENT',
+		'EVENT_NOT_FOUND',
+		'CLICK_NOT_FOUND',
+		'CLICK_CONVERSION_ALREADY_EXISTS',
+		'DUPLICATE_CLICK_CONVERSION_IN_REQUEST',
+		'CONVERSION_TRACKING_NOT_ENABLED_AT_IMPRESSION_TIME',
+		'CONVERSION_NOT_COMPLIANT_WITH_ATT_POLICY',
+	];
+
+	/**
+	 * Lowercase message fragments that identify permanent errors, keyed by code.
+	 *
+	 * Fallback for partial failures that carry no parseable error code. Each
+	 * fragment is taken from the message Google Ads API v23 documents for the
+	 * code, and avoids apostrophes so a typographic variant cannot break it.
+	 *
+	 * @var array<string,string>
+	 * @since 1.10.1
+	 */
+	private const PERMANENT_MESSAGE_PATTERNS = [
+		'UNPARSEABLE_GCLID'                                  => 'imported gclid could not be decoded',
+		'UNPARSEABLE_GBRAID'                                 => 'check if your gbraid parameter was not modified',
+		'UNPARSEABLE_WBRAID'                                 => 'check if your wbraid parameter was not modified',
+		'GBRAID_WBRAID_BOTH_SET'                             => 'use both gbraid and wbraid parameters',
+		'CONVERSION_PRECEDES_EVENT'                          => 'conversion_date_time that precedes the click',
+		'EXPIRED_EVENT'                                      => 'click occurred before this conversion',
+		'EVENT_NOT_FOUND'                                    => 'could not be attributed to a click',
+		'CLICK_NOT_FOUND'                                    => 'be matched to a click',
+		'CLICK_CONVERSION_ALREADY_EXISTS'                    => 'same click and conversion_date_time as an existing conversion',
+		'DUPLICATE_CLICK_CONVERSION_IN_REQUEST'              => 'multiple events have the same click and conversion_date_time',
+		'CONVERSION_TRACKING_NOT_ENABLED_AT_IMPRESSION_TIME' => 'at the time of the click, conversion tracking was not enabled',
+		'CONVERSION_NOT_COMPLIANT_WITH_ATT_POLICY'           => 'app transparency tracking',
+	];
+
+	/**
 	 * Creates a new API client with the given credentials.
 	 *
 	 * @param string $customer_id        Google Ads customer ID (digits only).
@@ -209,8 +261,10 @@ final class Google_Ads_Client {
 		// Check for partial failure errors in the response body.
 		$response_body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( ! empty( $response_body['partialFailureError'] ) ) {
-			$error_message = $response_body['partialFailureError']['message'] ?? 'Partial failure error';
-			$permanent     = self::is_permanent_partial_failure( $error_message );
+			$top_message   = $response_body['partialFailureError']['message'] ?? 'Partial failure error';
+			$errors        = self::extract_partial_failure_errors( $response_body['partialFailureError'] );
+			$permanent     = self::is_permanent_partial_failure( $errors, $top_message );
+			$error_message = self::describe_partial_failure( $errors, $top_message );
 			$this->logger?->error( 'GADS', "Conversion partial failure — gclid: {$gclid}, error: {$error_message}" . ( $permanent ? ' (permanent, will not retry)' : '' ) );
 			return [ 'success' => false, 'error' => $error_message, 'credential_error' => false, 'permanent_failure' => $permanent ];
 		}
@@ -576,39 +630,122 @@ final class Google_Ads_Client {
 	}
 
 	/**
+	 * Extracts the individual errors from a partial failure.
+	 *
+	 * The REST API returns `partialFailureError` as a google.rpc.Status whose
+	 * `details` holds a GoogleAdsFailure. Each of its errors carries an
+	 * `errorCode` object with a single key naming the error category (e.g.
+	 * `conversionUploadError`) and the enum value as its value.
+	 *
+	 * @param mixed $partial_failure_error Decoded `partialFailureError` from the response.
+	 *
+	 * @return list<array{category: string, code: string, message: string}> One entry per error; category and code are empty when the error code is missing or malformed.
+	 * @since 1.10.1
+	 */
+	private static function extract_partial_failure_errors( mixed $partial_failure_error ): array {
+
+		$errors  = [];
+		$details = is_array( $partial_failure_error['details'] ?? null ) ? $partial_failure_error['details'] : [];
+
+		foreach ( $details as $detail ) {
+
+			// Matching on the type suffix keeps this working across API versions.
+			$type = is_array( $detail ) && is_string( $detail['@type'] ?? null ) ? $detail['@type'] : '';
+			if ( ! str_ends_with( $type, '.GoogleAdsFailure' ) || ! is_array( $detail['errors'] ?? null ) ) {
+				continue;
+			}
+
+			foreach ( $detail['errors'] as $error ) {
+				$error_code = is_array( $error['errorCode'] ?? null ) ? $error['errorCode'] : [];
+				$category   = (string) array_key_first( $error_code );
+				$code       = $error_code[ $category ] ?? '';
+				$has_code   = is_string( $code ) && $code !== '';
+				$errors[]   = [
+					'category' => $has_code ? $category : '',
+					'code'     => $has_code ? $code : '',
+					'message'  => is_string( $error['message'] ?? null ) ? $error['message'] : '',
+				];
+			}
+
+		}
+
+		return $errors;
+	}
+
+	/**
 	 * Determines whether a partial failure error is permanent.
 	 *
-	 * Permanent errors will never succeed on retry. Known permanent
-	 * errors from Google Ads include CLICK_NOT_FOUND, EXPIRED_EVENT,
-	 * CLICK_CONVERSION_ALREADY_EXISTS, and CONVERSION_PRECEDES_EVENT.
+	 * Permanent errors will never succeed on retry. A partial failure is
+	 * permanent only if at least one error code was found and every error is
+	 * a `conversionUploadError` listed in PERMANENT_UPLOAD_ERROR_CODES. When
+	 * no error carries a parseable code, the top-level message is matched
+	 * against PERMANENT_MESSAGE_PATTERNS instead. Anything else is retryable.
 	 *
-	 * @param string $error_message The partial failure error message from Google Ads.
+	 * @param list<array{category: string, code: string, message: string}> $errors        Errors extracted by `extract_partial_failure_errors()`.
+	 * @param string                                                        $error_message The top-level partial failure message from Google Ads.
 	 *
 	 * @return bool True if the error is permanent and should not be retried.
 	 * @since 1.9.0
 	 */
-	private static function is_permanent_partial_failure( string $error_message ): bool {
+	private static function is_permanent_partial_failure( array $errors, string $error_message ): bool {
 
-		// Patterns from Google Ads API partial failure messages that indicate
-		// the upload will never succeed regardless of how many times we retry.
-		$permanent_patterns = [
-			'could not be attributed to a click',  // CLICK_NOT_FOUND
-			'already exists',                       // CLICK_CONVERSION_ALREADY_EXISTS
-			'already been uploaded',                // CLICK_CONVERSION_ALREADY_EXISTS (alt)
-			'precedes',                             // CONVERSION_PRECEDES_EVENT
-			'click_through_lookback_window',        // EXPIRED_EVENT
-			'not eligible',                         // CONVERSION_ACTION_NOT_ELIGIBLE
-			'invalid conversion action type',       // INVALID_CONVERSION_ACTION_TYPE
-		];
+		// A single retryable error, or one without a code, means the upload
+		// might still succeed, so it must not be dropped.
+		if ( self::has_error_codes( $errors ) ) {
+			foreach ( $errors as $error ) {
+				if ( $error['category'] !== 'conversionUploadError' || ! in_array( $error['code'], self::PERMANENT_UPLOAD_ERROR_CODES, true ) ) {
+					return false;
+				}
+			}
+			return true;
+		}
 
 		$lower = strtolower( $error_message );
-		foreach ( $permanent_patterns as $pattern ) {
+		foreach ( self::PERMANENT_MESSAGE_PATTERNS as $pattern ) {
 			if ( str_contains( $lower, $pattern ) ) {
 				return true;
 			}
 		}
 
 		return false;
+	}
+
+	/**
+	 * Builds the error text for a partial failure, led by its error codes.
+	 *
+	 * The text ends up in the log and the queue's error message, where the
+	 * code is what tells an admin why Google rejected the conversion.
+	 *
+	 * @param list<array{category: string, code: string, message: string}> $errors        Errors extracted by `extract_partial_failure_errors()`.
+	 * @param string                                                        $error_message The top-level partial failure message from Google Ads.
+	 *
+	 * @return string "CODE: message" per error joined by "; ", or the top-level message when no error has a code.
+	 * @since 1.10.1
+	 */
+	private static function describe_partial_failure( array $errors, string $error_message ): string {
+
+		if ( ! self::has_error_codes( $errors ) ) {
+			return $error_message;
+		}
+
+		$parts = array_map(
+			static fn( array $error ): string => implode( ': ', array_filter( [ $error['code'], $error['message'] ], static fn( string $part ): bool => $part !== '' ) ),
+			$errors,
+		);
+
+		return implode( '; ', $parts );
+	}
+
+	/**
+	 * Tells whether any extracted error carries a parseable error code.
+	 *
+	 * @param list<array{category: string, code: string, message: string}> $errors Errors extracted by `extract_partial_failure_errors()`.
+	 *
+	 * @return bool True if at least one error has a code.
+	 * @since 1.10.1
+	 */
+	private static function has_error_codes( array $errors ): bool {
+		return in_array( true, array_map( static fn( array $error ): bool => $error['code'] !== '', $errors ), true );
 	}
 
 	/**
