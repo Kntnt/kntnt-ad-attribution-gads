@@ -263,7 +263,11 @@ The weekly token refresh also keeps the OAuth client in use. Google [deletes OAu
 
 The check relies on WordPress cron running as usual.
 
-#### Multi-Touch Attribution
+#### Manager Account ID (MCC)
+
+Enter the 10-digit Customer ID of your **Manager Account (MCC)**. You can find it in the top-right corner of the [Google Ads Manager Account](https://ads.google.com) interface. A Manager Account is required because the Developer Token is only available through the API Center in a Manager Account.
+
+### Multi-Touch Attribution
 
 A visitor may click several tracking URLs before converting. The core plugin's attribution model, which the `kntnt_ad_attr_attribution` filter can replace, gives each click a weight (a fraction). The default last-click model gives the latest click `1.0` and every other click `0.0`.
 
@@ -279,10 +283,6 @@ The mode is set in code, since changing the attribution model already requires c
 ```php
 add_filter( 'kntnt_ad_attr_gads_multi_touch', fn() => 'split' );
 ```
-
-#### Manager Account ID (MCC)
-
-Enter the 10-digit Customer ID of your **Manager Account (MCC)**. You can find it in the top-right corner of the [Google Ads Manager Account](https://ads.google.com) interface. A Manager Account is required because the Developer Token is only available through the API Center in a Manager Account.
 
 ### User FAQ
 

@@ -123,10 +123,11 @@ final class Conversion_Reporter {
 		$eligible = [];
 		foreach ( $attributions as $hash => $fraction ) {
 			$fraction = (float) $fraction;
-			if ( $this->is_eligible( $fraction, $click_ids[ $hash ] ?? [] ) ) {
+			$click    = $this->google_ads_click( $click_ids[ $hash ] ?? [] );
+			if ( $this->is_eligible( $fraction, $click ) ) {
 				$eligible[] = [
 					'fraction' => $fraction,
-					'click'    => $click_ids[ $hash ]['google_ads'],
+					'click'    => $click,
 				];
 			}
 		}
@@ -152,7 +153,7 @@ final class Conversion_Reporter {
 		// in a filter callback cannot inflate the conversion count.
 		if ( $mode === 'split' ) {
 			return array_map(
-				fn ( array $attribution ): array => $this->build_item( $attribution['click'], $attribution['fraction'], $settings, $datetime, 'mode: split' ),
+				fn( array $attribution ): array => $this->build_item( $attribution['click'], $attribution['fraction'], $settings, $datetime, 'mode: split' ),
 				$eligible,
 			);
 		}
@@ -182,9 +183,9 @@ final class Conversion_Reporter {
 		$chosen = $eligible[0];
 
 		foreach ( $eligible as $candidate ) {
-			$heavier = $candidate['fraction'] > $chosen['fraction'];
-			$later   = $candidate['fraction'] === $chosen['fraction'] && $candidate['click']['captured_at'] > $chosen['click']['captured_at'];
-			if ( $heavier || $later ) {
+			$heavier  = $candidate['fraction'] > $chosen['fraction'];
+			$wins_tie = $candidate['fraction'] === $chosen['fraction'] && $candidate['click']['captured_at'] > $chosen['click']['captured_at'];
+			if ( $heavier || $wins_tie ) {
 				$chosen = $candidate;
 			}
 		}
@@ -239,14 +240,30 @@ final class Conversion_Reporter {
 	 * as a full conversion in Google Ads, so a missing weight disqualifies
 	 * an attribution as surely as a missing click identifier.
 	 *
-	 * @param float               $fraction       Attribution fraction of the hash.
-	 * @param array<string,mixed> $hash_click_ids Platform => structured click data for the hash.
+	 * @param float                                    $fraction Attribution fraction of the hash.
+	 * @param array{id: string, captured_at: int}|null $click    The hash's Google Ads click from google_ads_click().
 	 *
 	 * @return bool True if the attribution may be uploaded.
 	 * @since 1.11.0
 	 */
-	private function is_eligible( float $fraction, array $hash_click_ids ): bool {
-		return $fraction > 0 && ! empty( $hash_click_ids['google_ads']['id'] );
+	private function is_eligible( float $fraction, ?array $click ): bool {
+		return $fraction > 0 && $click !== null;
+	}
+
+	/**
+	 * Resolves the Google Ads click identifier of a hash.
+	 *
+	 * The only place that decides which captured click IDs count as a Google
+	 * Ads click, so supporting further identifier types means changing this
+	 * method alone.
+	 *
+	 * @param array<string,mixed> $hash_click_ids Platform => structured click data for the hash.
+	 *
+	 * @return array{id: string, captured_at: int}|null The click, or null if the hash has no Google Ads click identifier.
+	 * @since 1.11.0
+	 */
+	private function google_ads_click( array $hash_click_ids ): ?array {
+		return empty( $hash_click_ids['google_ads']['id'] ) ? null : $hash_click_ids['google_ads'];
 	}
 
 	/**
