@@ -83,7 +83,19 @@ final class Conversion_Reporter {
 	}
 
 	/**
-	 * Builds queue payloads for attributions that have a Google Ads click ID.
+	 * Builds queue payloads for the eligible attributions of a conversion.
+	 *
+	 * Only eligible attributions (see is_eligible()) produce uploads. Google
+	 * Ads counts every accepted click conversion as one conversion whatever
+	 * its value, so the `kntnt_ad_attr_gads_multi_touch` filter decides how
+	 * many uploads a multi-touch conversion produces:
+	 *
+	 * - `highest` (default): one upload for the eligible attribution with the
+	 *   highest fraction (ties go to the latest click, then to the first in
+	 *   `$attributions` order), carrying the sum of all eligible fractions,
+	 *   capped at 1.0. Google Ads gets the same total value as in `split`
+	 *   but counts one conversion.
+	 * - `split`: one upload per eligible attribution with its own fraction.
 	 *
 	 * Snapshots current settings into each payload as raw values. Derived
 	 * values (resource name, attributed value) are computed at process time
@@ -102,47 +114,139 @@ final class Conversion_Reporter {
 	 */
 	public function enqueue( array $attributions, array $click_ids, array $campaigns, array $context ): array {
 		$settings = $this->settings->get_all();
-		$items    = [];
 
 		// Format timestamp for Google Ads (RFC 3339 with offset).
 		$datetime = ( new DateTimeImmutable( $context['timestamp'] ) )->format( 'Y-m-d H:i:sP' );
 
+		// Fractions come from the user-filterable core attribution model, so
+		// cast before the strictly typed eligibility check.
+		$eligible = [];
 		foreach ( $attributions as $hash => $fraction ) {
-
-			// Skip hashes without a Google Ads click ID.
-			if ( empty( $click_ids[ $hash ]['google_ads']['id'] ) ) {
-				continue;
+			$fraction = (float) $fraction;
+			if ( $this->is_eligible( $fraction, $click_ids[ $hash ] ?? [] ) ) {
+				$eligible[] = [
+					'fraction' => $fraction,
+					'click'    => $click_ids[ $hash ]['google_ads'],
+				];
 			}
-
-			// Extract click ID and capture time from the structured format.
-			$gclid              = $click_ids[ $hash ]['google_ads']['id'];
-			$captured_at        = $click_ids[ $hash ]['google_ads']['captured_at'];
-			$not_before         = $captured_at + self::UPLOAD_DELAY_SECONDS;
-			$conversion_action_id = $settings['conversion_action_id'];
-
-			$this->logger->info( 'GADS', "Enqueued — gclid: {$gclid}, datetime: {$datetime}, fraction: {$fraction}" );
-
-			$items[] = [
-				'payload' => [
-					'gclid'                => $gclid,
-					'conversion_datetime'  => $datetime,
-					'attribution_fraction' => $fraction,
-					'customer_id'          => $settings['customer_id'],
-					'conversion_action_id' => $conversion_action_id,
-					'conversion_value'     => $settings['conversion_value'],
-					'currency_code'        => $settings['currency_code'],
-					'developer_token'      => $settings['developer_token'],
-					'client_id'            => $settings['client_id'],
-					'client_secret'        => $settings['client_secret'],
-					'refresh_token'        => $settings['refresh_token'],
-					'login_customer_id'    => $settings['login_customer_id'],
-				],
-				'label'      => sprintf( 'gclid %s → action %s', substr( $gclid, 0, 12 ) . '…', $conversion_action_id ),
-				'not_before' => $not_before,
-			];
 		}
 
-		return $items;
+		if ( ! $eligible ) {
+			return [];
+		}
+
+		/**
+		 * Filters how a multi-touch conversion is uploaded to Google Ads.
+		 *
+		 * `highest` uploads one conversion per recorded conversion; `split`
+		 * uploads one per eligible attribution, which Google Ads counts as
+		 * separate conversions. Any other value is treated as `highest`.
+		 *
+		 * @param string $mode Upload mode. Default 'highest'.
+		 *
+		 * @since 1.11.0
+		 */
+		$mode = apply_filters( 'kntnt_ad_attr_gads_multi_touch', 'highest' );
+
+		// Anything but an exact 'split' falls back to the default, so a typo
+		// in a filter callback cannot inflate the conversion count.
+		if ( $mode === 'split' ) {
+			return array_map(
+				fn ( array $attribution ): array => $this->build_item( $attribution['click'], $attribution['fraction'], $settings, $datetime, 'mode: split' ),
+				$eligible,
+			);
+		}
+
+		// The summed fraction keeps the uploaded value equal to the split
+		// total; the cap guards against attribution models that sum above 1.
+		$chosen   = $this->select_highest( $eligible );
+		$fraction = min( 1.0, array_sum( array_column( $eligible, 'fraction' ) ) );
+		$note     = sprintf( 'mode: highest, merged: %d', count( $eligible ) );
+
+		return [ $this->build_item( $chosen['click'], $fraction, $settings, $datetime, $note ) ];
+	}
+
+	/**
+	 * Picks the eligible attribution that a `highest` upload is built from.
+	 *
+	 * The highest fraction wins. Among equal fractions the latest click wins,
+	 * in line with the core's last-click default; among equal capture times
+	 * the first in input order wins, so the choice is deterministic.
+	 *
+	 * @param non-empty-list<array{fraction: float, click: array{id: string, captured_at: int}}> $eligible Eligible attributions in input order.
+	 *
+	 * @return array{fraction: float, click: array{id: string, captured_at: int}} The chosen attribution.
+	 * @since 1.11.0
+	 */
+	private function select_highest( array $eligible ): array {
+		$chosen = $eligible[0];
+
+		foreach ( $eligible as $candidate ) {
+			$heavier = $candidate['fraction'] > $chosen['fraction'];
+			$later   = $candidate['fraction'] === $chosen['fraction'] && $candidate['click']['captured_at'] > $chosen['click']['captured_at'];
+			if ( $heavier || $later ) {
+				$chosen = $candidate;
+			}
+		}
+
+		return $chosen;
+	}
+
+	/**
+	 * Builds one queue item for a Google Ads click and logs it.
+	 *
+	 * @param array{id: string, captured_at: int} $click    Structured Google Ads click data.
+	 * @param float                               $fraction Attribution fraction to upload.
+	 * @param array<string,string>                $settings Current plugin settings.
+	 * @param string                              $datetime Conversion time in Google Ads format.
+	 * @param string                              $note     Mode details for the log line.
+	 *
+	 * @return array<string,mixed> Queue item with payload, label and not_before.
+	 * @since 1.11.0
+	 */
+	private function build_item( array $click, float $fraction, array $settings, string $datetime, string $note ): array {
+		$gclid                = $click['id'];
+		$not_before           = $click['captured_at'] + self::UPLOAD_DELAY_SECONDS;
+		$conversion_action_id = $settings['conversion_action_id'];
+
+		$this->logger->info( 'GADS', "Enqueued — {$note}, gclid: {$gclid}, datetime: {$datetime}, fraction: {$fraction}" );
+
+		return [
+			'payload'    => [
+				'gclid'                => $gclid,
+				'conversion_datetime'  => $datetime,
+				'attribution_fraction' => $fraction,
+				'customer_id'          => $settings['customer_id'],
+				'conversion_action_id' => $conversion_action_id,
+				'conversion_value'     => $settings['conversion_value'],
+				'currency_code'        => $settings['currency_code'],
+				'developer_token'      => $settings['developer_token'],
+				'client_id'            => $settings['client_id'],
+				'client_secret'        => $settings['client_secret'],
+				'refresh_token'        => $settings['refresh_token'],
+				'login_customer_id'    => $settings['login_customer_id'],
+			],
+			'label'      => sprintf( 'gclid %s → action %s', substr( $gclid, 0, 12 ) . '…', $conversion_action_id ),
+			'not_before' => $not_before,
+		];
+	}
+
+	/**
+	 * Tells whether an attribution may produce a Google Ads upload.
+	 *
+	 * The single definition of an eligible attribution: positive weight and
+	 * a Google Ads click identifier. A zero-weight upload would still count
+	 * as a full conversion in Google Ads, so a missing weight disqualifies
+	 * an attribution as surely as a missing click identifier.
+	 *
+	 * @param float               $fraction       Attribution fraction of the hash.
+	 * @param array<string,mixed> $hash_click_ids Platform => structured click data for the hash.
+	 *
+	 * @return bool True if the attribution may be uploaded.
+	 * @since 1.11.0
+	 */
+	private function is_eligible( float $fraction, array $hash_click_ids ): bool {
+		return $fraction > 0 && ! empty( $hash_click_ids['google_ads']['id'] );
 	}
 
 	/**

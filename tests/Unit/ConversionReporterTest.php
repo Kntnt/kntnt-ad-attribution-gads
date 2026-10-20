@@ -11,6 +11,7 @@ declare(strict_types=1);
 use Kntnt\Ad_Attribution_Gads\Conversion_Reporter;
 use Kntnt\Ad_Attribution\Logger;
 use Kntnt\Ad_Attribution_Gads\Settings;
+use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 
 /**
@@ -166,35 +167,6 @@ describe('Conversion_Reporter::enqueue()', function () {
         expect($payloads)->toBeEmpty();
     });
 
-    it('builds correct payloads for multiple attributions', function () {
-        $settings = Mockery::mock(Settings::class);
-        $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
-
-        $reporter = new Conversion_Reporter($settings, Mockery::mock(Logger::class)->shouldIgnoreMissing());
-
-        $attributions = [
-            'hash_a' => 0.5,
-            'hash_b' => 0.3,
-            'hash_c' => 0.2,
-        ];
-        $click_ids = [
-            'hash_a' => ['google_ads' => ['id' => 'gclid_a', 'captured_at' => 1700000000]],
-            'hash_b' => ['google_ads' => ['id' => 'gclid_b', 'captured_at' => 1700000100]],
-            'hash_c' => ['meta_ads' => ['id' => 'fbclid_c', 'captured_at' => 1700000200]],  // No gclid.
-        ];
-        $campaigns = [];
-        $context   = ['timestamp' => '2026-01-15 10:30:00'];
-
-        $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
-
-        // Only hash_a and hash_b have gclids.
-        expect($payloads)->toHaveCount(2);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
-        expect($payloads[0]['payload']['attribution_fraction'])->toBe(0.5);
-        expect($payloads[1]['payload']['gclid'])->toBe('gclid_b');
-        expect($payloads[1]['payload']['attribution_fraction'])->toBe(0.3);
-    });
-
     it('stores attribution_fraction as raw value', function () {
         $settings = Mockery::mock(Settings::class);
         $settings->shouldReceive('get_all')->once()->andReturn(default_settings());
@@ -324,6 +296,247 @@ describe('Conversion_Reporter::enqueue()', function () {
         expect($payloads[0]['payload']['gclid'])->toBe('gclid_abc');
         expect($payloads[0]['payload']['customer_id'])->toBe('');
         expect($payloads[0]['payload']['developer_token'])->toBe('');
+    });
+
+});
+
+// ─── enqueue() attribution selection ───
+
+/**
+ * Builds a reporter whose settings mock returns default_settings().
+ *
+ * @param Logger|null $logger Optional logger; a permissive mock is used when null.
+ *
+ * @return Conversion_Reporter
+ */
+function selection_reporter(?Logger $logger = null): Conversion_Reporter {
+    $settings = Mockery::mock(Settings::class);
+    $settings->shouldReceive('get_all')->andReturn(default_settings());
+
+    return new Conversion_Reporter($settings, $logger ?? Mockery::mock(Logger::class)->shouldIgnoreMissing());
+}
+
+/**
+ * Builds a structured Google Ads click-ID entry.
+ *
+ * @param string $gclid       Click identifier.
+ * @param int    $captured_at Unix timestamp of the click.
+ *
+ * @return array{google_ads: array{id: string, captured_at: int}}
+ */
+function gads_click(string $gclid, int $captured_at = 1700000000): array {
+    return ['google_ads' => ['id' => $gclid, 'captured_at' => $captured_at]];
+}
+
+/**
+ * Makes the multi-touch filter return the given mode.
+ *
+ * @param string $mode Filter return value.
+ *
+ * @return void
+ */
+function use_multi_touch_mode(string $mode): void {
+    Filters\expectApplied('kntnt_ad_attr_gads_multi_touch')->andReturn($mode);
+}
+
+describe('Conversion_Reporter::enqueue() attribution selection', function () {
+
+    $context = ['timestamp' => '2026-01-15 10:30:00'];
+
+    it('skips zero-weight attributions', function (string $mode) use ($context) {
+        use_multi_touch_mode($mode);
+
+        $attributions = ['hash_a' => 1.0, 'hash_b' => 0.0];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a'),
+            'hash_b' => gads_click('gclid_b'),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['attribution_fraction'])->toBe(1.0);
+    })->with(['highest', 'split']);
+
+    it('uploads only the Google Ads share when another platform holds part of the weight', function (string $mode) use ($context) {
+        use_multi_touch_mode($mode);
+
+        $attributions = ['hash_m' => 0.6, 'hash_g' => 0.4];
+        $click_ids    = [
+            'hash_m' => ['meta_ads' => ['id' => 'fbclid_m', 'captured_at' => 1700000000]],
+            'hash_g' => gads_click('gclid_g', 1700000500),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_g');
+        expect($payloads[0]['payload']['attribution_fraction'])->toBe(0.4);
+        expect($payloads[0]['not_before'])->toBe(1700000500 + 21600);
+    })->with(['highest', 'split']);
+
+    it('returns no items when no attribution has positive weight', function (string $mode) use ($context) {
+        use_multi_touch_mode($mode);
+
+        $attributions = ['hash_a' => 0.0, 'hash_b' => -0.2];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a'),
+            'hash_b' => gads_click('gclid_b'),
+        ];
+
+        expect(selection_reporter()->enqueue($attributions, $click_ids, [], $context))->toBe([]);
+    })->with(['highest', 'split']);
+
+    it('returns no items when no attribution has a Google Ads click', function (string $mode) use ($context) {
+        use_multi_touch_mode($mode);
+
+        $attributions = ['hash_a' => 0.6, 'hash_b' => 0.4];
+        $click_ids    = [
+            'hash_a' => ['meta_ads' => ['id' => 'fbclid_a', 'captured_at' => 1700000000]],
+        ];
+
+        expect(selection_reporter()->enqueue($attributions, $click_ids, [], $context))->toBe([]);
+    })->with(['highest', 'split']);
+
+    it('merges eligible attributions into one upload for the heaviest click in the default mode', function () use ($context) {
+        $attributions = ['hash_a' => 0.7, 'hash_b' => 0.3];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a', 1700000000),
+            'hash_b' => gads_click('gclid_b', 1700000500),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['attribution_fraction'])->toEqualWithDelta(1.0, 1e-9);
+        expect($payloads[0]['not_before'])->toBe(1700000000 + 21600);
+    });
+
+    it('breaks a weight tie in favour of the most recent click', function () use ($context) {
+        $attributions = ['hash_a' => 0.5, 'hash_b' => 0.5];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a', 1700000500),
+            'hash_b' => gads_click('gclid_b', 1700000900),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_b');
+        expect($payloads[0]['payload']['attribution_fraction'])->toBe(1.0);
+        expect($payloads[0]['not_before'])->toBe(1700000900 + 21600);
+    });
+
+    it('breaks a full tie in favour of the first attribution', function () use ($context) {
+        $attributions = ['hash_a' => 0.5, 'hash_b' => 0.5];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a', 1700000500),
+            'hash_b' => gads_click('gclid_b', 1700000500),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+    });
+
+    it('caps the merged fraction at 1.0', function () use ($context) {
+        $attributions = ['hash_a' => 0.8, 'hash_b' => 0.5];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a'),
+            'hash_b' => gads_click('gclid_b'),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['attribution_fraction'])->toBe(1.0);
+    });
+
+    it('logs the mode and the number of merged attributions in highest mode', function () use ($context) {
+        $messages = [];
+        $logger   = Mockery::mock(Logger::class);
+        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
+            $messages[] = $message;
+        });
+
+        $attributions = ['hash_a' => 0.7, 'hash_b' => 0.3, 'hash_c' => 0.0];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a'),
+            'hash_b' => gads_click('gclid_b'),
+            'hash_c' => gads_click('gclid_c'),
+        ];
+
+        selection_reporter($logger)->enqueue($attributions, $click_ids, [], $context);
+
+        $enqueued = array_values(array_filter($messages, fn ($m) => str_starts_with($m, 'Enqueued')));
+        expect($enqueued)->toHaveCount(1);
+        expect($enqueued[0])->toContain('mode: highest');
+        expect($enqueued[0])->toContain('merged: 2');
+        expect($enqueued[0])->toContain('gclid_a');
+    });
+
+    it('logs the mode for every upload in split mode', function () use ($context) {
+        use_multi_touch_mode('split');
+
+        $messages = [];
+        $logger   = Mockery::mock(Logger::class);
+        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
+            $messages[] = $message;
+        });
+
+        $attributions = ['hash_a' => 0.7, 'hash_b' => 0.3];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a'),
+            'hash_b' => gads_click('gclid_b'),
+        ];
+
+        selection_reporter($logger)->enqueue($attributions, $click_ids, [], $context);
+
+        $enqueued = array_values(array_filter($messages, fn ($m) => str_starts_with($m, 'Enqueued')));
+        expect($enqueued)->toHaveCount(2);
+        expect($enqueued[0])->toContain('mode: split');
+        expect($enqueued[0])->toContain('gclid_a');
+        expect($enqueued[1])->toContain('mode: split');
+        expect($enqueued[1])->toContain('gclid_b');
+    });
+
+    it('treats an unknown mode as highest', function (mixed $mode) use ($context) {
+        Filters\expectApplied('kntnt_ad_attr_gads_multi_touch')->andReturn($mode);
+
+        $attributions = ['hash_a' => 0.7, 'hash_b' => 0.3];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a'),
+            'hash_b' => gads_click('gclid_b'),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['attribution_fraction'])->toEqualWithDelta(1.0, 1e-9);
+    })->with(['bogus', 'Split', null]);
+
+    it('uploads each eligible attribution with its own fraction in split mode', function () use ($context) {
+        use_multi_touch_mode('split');
+
+        $attributions = ['hash_a' => 0.7, 'hash_b' => 0.3];
+        $click_ids    = [
+            'hash_a' => gads_click('gclid_a', 1700000000),
+            'hash_b' => gads_click('gclid_b', 1700000500),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(2);
+        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['attribution_fraction'])->toBe(0.7);
+        expect($payloads[0]['not_before'])->toBe(1700000000 + 21600);
+        expect($payloads[1]['payload']['gclid'])->toBe('gclid_b');
+        expect($payloads[1]['payload']['attribution_fraction'])->toBe(0.3);
+        expect($payloads[1]['not_before'])->toBe(1700000500 + 21600);
     });
 
 });

@@ -18,7 +18,7 @@ The plugin uses two adapter hooks provided by the core plugin:
 
 1. **Click-ID capture** (`kntnt_ad_attr_click_id_capturers`): Registers `'google_ads' => 'gclid'`. When a visitor clicks a tracking URL that has a `gclid` query parameter, the core plugin's `Click_Handler` captures and stores the value in the `kntnt_ad_attr_click_ids` table. No custom tables or storage are needed — the core handles everything.
 
-2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed to a hash that has a stored `gclid`, a payload is built and queued for asynchronous processing. Each job is deferred by 6 hours from the click capture time (via the core queue's `not_before` parameter), giving Google Ads time to register the click before accepting the conversion upload. Clicks already older than 6 hours are processed immediately. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
+2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed with a weight above zero to a hash that has a stored `gclid`, a payload is built and queued for asynchronous processing. By default, each conversion produces at most one upload, even under a multi-touch attribution model (see [Multi-Touch Attribution](#multi-touch-attribution)). Each job is deferred by 6 hours from the click capture time (via the core queue's `not_before` parameter), giving Google Ads time to register the click before accepting the conversion upload. Clicks already older than 6 hours are processed immediately. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
 
 The plugin creates no custom tables, CPTs, or cookies. It schedules a weekly background check of the Google Ads connection and registers three REST API endpoints for settings page operations (test connection, create conversion action, fetch conversion action details). It relies on the core plugin's infrastructure for click-ID storage and conversion queuing.
 
@@ -26,6 +26,7 @@ The plugin creates no custom tables, CPTs, or cookies. It schedules a weekly bac
 
 - Automatically captures `gclid` parameters when visitors arrive via Google Ads tracking URLs.
 - Queues and uploads conversions to Google Ads via the Offline Conversion Upload API.
+- **One upload per conversion** — clicks with zero attribution weight are never uploaded, and by default a multi-touch conversion is uploaded once, so Google Ads doesn't count one lead as several conversions. See [Multi-Touch Attribution](#multi-touch-attribution).
 - **Deferred upload** — each conversion upload is deferred by 6 hours from click capture time, giving Google Ads time to register the click. Clicks older than 6 hours are processed immediately.
 - Resilient queuing — conversions are always queued regardless of credential status. Missing credentials are filled in from current settings when the job is processed.
 - Failed jobs are automatically reset when settings are updated with valid credentials.
@@ -261,6 +262,23 @@ Every Monday at 01:00 in the site's timezone, the plugin runs the same two-phase
 The weekly token refresh also keeps the OAuth client in use. Google [deletes OAuth clients that have been unused for six months](https://support.google.com/cloud/answer/15549257#unused-client-deletion), which would otherwise break conversion uploads on sites where no conversions are reported for a long time.
 
 The check relies on WordPress cron running as usual.
+
+#### Multi-Touch Attribution
+
+A visitor may click several tracking URLs before converting. The core plugin's attribution model, which the `kntnt_ad_attr_attribution` filter can replace, gives each click a weight (a fraction). The default last-click model gives the latest click `1.0` and every other click `0.0`.
+
+Only *eligible* clicks are uploaded to Google Ads: clicks with a weight above zero and a `gclid`. Google Ads counts every uploaded click conversion as one conversion, whatever its value. A multi-touch model that splits one lead between two Google Ads clicks would therefore show up as two conversions. The `kntnt_ad_attr_gads_multi_touch` filter decides what happens:
+
+* **`highest`** (default) — at most one upload per conversion. It uses the Google Ads click with the highest weight. Among equal weights the most recent click wins, and among equally recent clicks the first one wins. The upload carries the sum of the weights of all eligible Google Ads clicks, capped at 1.0. If a click from another platform holds part of the weight, Google Ads gets only its own share of the conversion value.
+* **`split`** — one upload per eligible Google Ads click, each with its own weight. Google Ads gets the same total value as in `highest` but counts one conversion per click.
+
+`highest` is the default because `split` inflates the conversion count in Google Ads, which skews conversion-based bidding. Any value other than `highest` or `split` is treated as `highest`.
+
+The mode is set in code, since changing the attribution model already requires code:
+
+```php
+add_filter( 'kntnt_ad_attr_gads_multi_touch', fn() => 'split' );
+```
 
 #### Manager Account ID (MCC)
 
