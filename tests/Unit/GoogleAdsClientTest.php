@@ -8,7 +8,6 @@
 
 declare(strict_types=1);
 
-use Kntnt\Ad_Attribution\Logger;
 use Kntnt\Ad_Attribution_Gads\Click_Id_Type;
 use Kntnt\Ad_Attribution_Gads\Google_Ads_Client;
 use Brain\Monkey\Functions;
@@ -25,27 +24,6 @@ function make_client(string $login_customer_id = '', string $conversion_action_i
         refresh_token: 'refresh_abc',
         login_customer_id: $login_customer_id,
         conversion_action_id: $conversion_action_id,
-    );
-}
-
-/**
- * Stubs wp_json_encode to delegate to json_encode.
- */
-function stub_wp_json_encode(): void {
-    if (!function_exists('wp_json_encode')) {
-        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
-    }
-}
-
-/**
- * Stubs wp_remote_retrieve_response_code and wp_remote_retrieve_body.
- */
-function stub_response_helpers(): void {
-    Functions\when('wp_remote_retrieve_response_code')->alias(
-        fn ($response) => $response['response']['code'] ?? 0,
-    );
-    Functions\when('wp_remote_retrieve_body')->alias(
-        fn ($response) => $response['body'] ?? '',
     );
 }
 
@@ -94,10 +72,7 @@ function partial_failure_error(array ...$errors): array {
  * Uploads a conversion against an API stub that answers with the given partial failure.
  */
 function upload_with_partial_failure(array $partial_failure_error): array {
-    Functions\when('get_transient')->justReturn('cached_token');
-    Functions\when('is_wp_error')->justReturn(false);
-    stub_wp_json_encode();
-    stub_response_helpers();
+    stub_api_with_cached_token();
 
     // Failed rows come back as empty objects in `results`.
     Functions\expect('wp_remote_post')
@@ -125,34 +100,14 @@ function upload_with_partial_failure(array $partial_failure_error): array {
  * conversion the request body carried.
  */
 function uploaded_conversion(Click_Id_Type $type, string $click_id): array {
-    Functions\when('get_transient')->justReturn('cached_token');
-    Functions\when('is_wp_error')->justReturn(false);
-    stub_wp_json_encode();
-    stub_response_helpers();
-
-    $body = null;
-    Functions\expect('wp_remote_post')
-        ->once()
-        ->andReturnUsing(function (string $url, array $args) use (&$body) {
-            $body = json_decode($args['body'], true);
-            return [
-                'response' => ['code' => 200],
-                'body'     => json_encode(['results' => [[]]]),
-            ];
-        });
-
-    make_client()->upload_click_conversion(
+    return conversion_uploaded_by(fn () => make_client()->upload_click_conversion(
         $type,
         $click_id,
         'customers/1234567890/conversionActions/99',
         '2026-01-15 10:30:00+01:00',
         100.0,
         'SEK',
-    );
-
-    expect($body['conversions'])->toHaveCount(1);
-
-    return $body['conversions'][0];
+    ));
 }
 
 /**
@@ -769,37 +724,24 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
     ]);
 
     it('names the identifier type in its log lines', function () {
-        Functions\when('get_transient')->justReturn('cached_token');
-        Functions\when('is_wp_error')->justReturn(false);
-        stub_wp_json_encode();
-        stub_response_helpers();
-        Functions\when('wp_remote_post')->justReturn([
-            'response' => ['code' => 200],
-            'body'     => json_encode(['results' => [[]]]),
-        ]);
-
         $messages = [];
-        $logger   = Mockery::mock(Logger::class);
-        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
-            $messages[] = $message;
-        });
-
-        $client = new Google_Ads_Client(
+        $client   = new Google_Ads_Client(
             customer_id: '1234567890',
             developer_token: 'dev_token',
             client_id: 'client.apps.googleusercontent.com',
             client_secret: 'secret',
             refresh_token: 'refresh_abc',
-            logger: $logger,
+            logger: recording_logger($messages),
         );
-        $client->upload_click_conversion(
+
+        conversion_uploaded_by(fn () => $client->upload_click_conversion(
             Click_Id_Type::Wbraid,
             'wbraid_123',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
             100.0,
             'SEK',
-        );
+        ));
 
         expect($messages)->not->toBeEmpty();
         foreach ($messages as $message) {

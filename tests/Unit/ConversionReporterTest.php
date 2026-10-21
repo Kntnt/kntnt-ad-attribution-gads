@@ -335,7 +335,7 @@ function selection_reporter(?Logger $logger = null): Conversion_Reporter {
 }
 
 /**
- * Builds a structured Google Ads click-ID entry.
+ * Builds a hash's click-ID entries for a click that has only a gclid.
  *
  * @param string $gclid       Click identifier.
  * @param int    $captured_at Unix timestamp of the click.
@@ -343,7 +343,7 @@ function selection_reporter(?Logger $logger = null): Conversion_Reporter {
  * @return array{google_ads: array{id: string, captured_at: int}}
  */
 function gads_click(string $gclid, int $captured_at = 1700000000): array {
-    return ['google_ads' => ['id' => $gclid, 'captured_at' => $captured_at]];
+    return gads_click_ids(['gclid' => $gclid], $captured_at);
 }
 
 /**
@@ -495,10 +495,7 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
 
     it('logs the mode and the number of merged attributions in highest mode', function () use ($context) {
         $messages = [];
-        $logger   = Mockery::mock(Logger::class);
-        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
-            $messages[] = $message;
-        });
+        $logger   = recording_logger($messages);
 
         $attributions = ['hash_a' => 0.7, 'hash_b' => 0.3, 'hash_c' => 0.0];
         $click_ids    = [
@@ -520,10 +517,7 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
         use_multi_touch_mode('split');
 
         $messages = [];
-        $logger   = Mockery::mock(Logger::class);
-        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
-            $messages[] = $message;
-        });
+        $logger   = recording_logger($messages);
 
         $attributions = ['hash_a' => 0.7, 'hash_b' => 0.3];
         $click_ids    = [
@@ -649,12 +643,8 @@ describe('Conversion_Reporter::enqueue() click identifier', function () {
 
     it('names the identifier type in the Enqueued log line', function () use ($context) {
         $messages = [];
-        $logger   = Mockery::mock(Logger::class);
-        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
-            $messages[] = $message;
-        });
 
-        selection_reporter($logger)->enqueue(['hash_a' => 1.0], ['hash_a' => gads_click_ids(['wbraid' => 'W1'])], [], $context);
+        selection_reporter(recording_logger($messages))->enqueue(['hash_a' => 1.0], ['hash_a' => gads_click_ids(['wbraid' => 'W1'])], [], $context);
 
         expect($messages)->toHaveCount(1);
         expect($messages[0])->toStartWith('Enqueued — mode: highest, merged: 1, wbraid: W1,');
@@ -709,25 +699,9 @@ function queued_payload(array $click): array {
  * @return array<string,mixed> The uploaded ClickConversion.
  */
 function uploaded_conversion_of(Conversion_Reporter $reporter, array $payload): array {
-    Functions\when('get_transient')->justReturn('cached_token');
-    Functions\when('is_wp_error')->justReturn(false);
     Functions\when('delete_transient')->justReturn(true);
-    Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
-    Functions\when('wp_remote_retrieve_response_code')->alias(fn ($response) => $response['response']['code'] ?? 0);
-    Functions\when('wp_remote_retrieve_body')->alias(fn ($response) => $response['body'] ?? '');
 
-    $body = null;
-    Functions\expect('wp_remote_post')
-        ->once()
-        ->andReturnUsing(function (string $url, array $args) use (&$body) {
-            $body = json_decode($args['body'], true);
-            return ['response' => ['code' => 200], 'body' => json_encode(['results' => [[]]])];
-        });
-
-    expect($reporter->process($payload))->toBeTrue();
-    expect($body['conversions'])->toHaveCount(1);
-
-    return $body['conversions'][0];
+    return conversion_uploaded_by(fn () => expect($reporter->process($payload))->toBeTrue());
 }
 
 /**
@@ -761,11 +735,7 @@ describe('Conversion_Reporter::process() click identifiers', function () {
     });
 
     it('names the identifier type when an upload fails', function () {
-        Functions\when('get_transient')->justReturn('cached_token');
-        Functions\when('is_wp_error')->justReturn(false);
-        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
-        Functions\when('wp_remote_retrieve_response_code')->alias(fn ($response) => $response['response']['code'] ?? 0);
-        Functions\when('wp_remote_retrieve_body')->alias(fn ($response) => $response['body'] ?? '');
+        stub_api_with_cached_token();
         Functions\when('wp_remote_post')->justReturn(['response' => ['code' => 403], 'body' => 'Forbidden']);
 
         $logged = [];
@@ -775,12 +745,7 @@ describe('Conversion_Reporter::process() click identifiers', function () {
         });
 
         $messages = [];
-        $logger   = Mockery::mock(Logger::class)->shouldIgnoreMissing();
-        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
-            $messages[] = $message;
-        });
-
-        $result = selection_reporter($logger)->process(queued_payload(['click_id_type' => 'wbraid', 'click_id' => 'W_123']));
+        $result   = selection_reporter(recording_logger($messages))->process(queued_payload(['click_id_type' => 'wbraid', 'click_id' => 'W_123']));
 
         expect($result)->toBeFalse();
         expect($logged)->toHaveCount(1);

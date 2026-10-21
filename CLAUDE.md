@@ -132,7 +132,9 @@ kntnt-ad-attribution-gads/
     ├── Helpers/
     │   ├── WpStubs.php                ← WordPress constants and helper stubs
     │   ├── TestFactory.php            ← Mock $wpdb factory
-    │   └── PluginStatics.php          ← set_plugin_statics(): resets the add-on Plugin's statics
+    │   ├── PluginStatics.php          ← set_plugin_statics(): resets the add-on Plugin's statics
+    │   ├── GoogleAdsApiStubs.php      ← HTTP stubs for Google Ads API calls; conversion_uploaded_by()
+    │   └── RecordingLogger.php        ← recording_logger(): Logger mock that records one level's messages
     ├── Stubs/
     │   └── CorePlugin.php             ← Redefinable stub of \Kntnt\Ad_Attribution\Plugin (autoloaded)
     └── Unit/
