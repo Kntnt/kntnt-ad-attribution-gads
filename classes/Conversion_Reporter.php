@@ -324,6 +324,7 @@ final class Conversion_Reporter {
 		);
 
 		$result = $client->upload_click_conversion(
+			Click_Id_Type::Gclid,
 			$payload['gclid'],
 			$conversion_action,
 			$payload['conversion_datetime'],
