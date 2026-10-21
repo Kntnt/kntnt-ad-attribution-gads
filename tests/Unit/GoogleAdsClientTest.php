@@ -8,6 +8,8 @@
 
 declare(strict_types=1);
 
+use Kntnt\Ad_Attribution\Logger;
+use Kntnt\Ad_Attribution_Gads\Click_Id_Type;
 use Kntnt\Ad_Attribution_Gads\Google_Ads_Client;
 use Brain\Monkey\Functions;
 
@@ -109,12 +111,48 @@ function upload_with_partial_failure(array $partial_failure_error): array {
         ]);
 
     return make_client()->upload_click_conversion(
+        Click_Id_Type::Gclid,
         'test_gclid',
         'customers/1234567890/conversionActions/99',
         '2026-01-15 10:30:00+01:00',
         100.0,
         'SEK',
     );
+}
+
+/**
+ * Uploads a conversion of the given click identifier and returns the one
+ * conversion the request body carried.
+ */
+function uploaded_conversion(Click_Id_Type $type, string $click_id): array {
+    Functions\when('get_transient')->justReturn('cached_token');
+    Functions\when('is_wp_error')->justReturn(false);
+    stub_wp_json_encode();
+    stub_response_helpers();
+
+    $body = null;
+    Functions\expect('wp_remote_post')
+        ->once()
+        ->andReturnUsing(function (string $url, array $args) use (&$body) {
+            $body = json_decode($args['body'], true);
+            return [
+                'response' => ['code' => 200],
+                'body'     => json_encode(['results' => [[]]]),
+            ];
+        });
+
+    make_client()->upload_click_conversion(
+        $type,
+        $click_id,
+        'customers/1234567890/conversionActions/99',
+        '2026-01-15 10:30:00+01:00',
+        100.0,
+        'SEK',
+    );
+
+    expect($body['conversions'])->toHaveCount(1);
+
+    return $body['conversions'][0];
 }
 
 /**
@@ -608,6 +646,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -659,6 +698,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -697,6 +737,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'gclid_xyz',
             'customers/1234567890/conversionActions/99',
             '2026-03-15 14:30:00+01:00',
@@ -709,11 +750,61 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
         expect($captured_body['conversions'])->toHaveCount(1);
 
         $conversion = $captured_body['conversions'][0];
+        expect(array_keys($conversion))->toBe(['gclid', 'conversionAction', 'conversionDateTime', 'conversionValue', 'currencyCode']);
         expect($conversion['gclid'])->toBe('gclid_xyz');
         expect($conversion['conversionAction'])->toBe('customers/1234567890/conversionActions/99');
         expect($conversion['conversionDateTime'])->toBe('2026-03-15 14:30:00+01:00');
         expect((float) $conversion['conversionValue'])->toBe(250.0);
         expect($conversion['currencyCode'])->toBe('SEK');
+    });
+
+    it('sends a braid in its own field and no other click identifier', function (Click_Id_Type $type, string $field) {
+        $conversion = uploaded_conversion($type, '0AAAAAD_braid_value');
+
+        expect(array_keys($conversion))->toBe([$field, 'conversionAction', 'conversionDateTime', 'conversionValue', 'currencyCode']);
+        expect($conversion[$field])->toBe('0AAAAAD_braid_value');
+    })->with([
+        'gbraid' => [Click_Id_Type::Gbraid, 'gbraid'],
+        'wbraid' => [Click_Id_Type::Wbraid, 'wbraid'],
+    ]);
+
+    it('names the identifier type in its log lines', function () {
+        Functions\when('get_transient')->justReturn('cached_token');
+        Functions\when('is_wp_error')->justReturn(false);
+        stub_wp_json_encode();
+        stub_response_helpers();
+        Functions\when('wp_remote_post')->justReturn([
+            'response' => ['code' => 200],
+            'body'     => json_encode(['results' => [[]]]),
+        ]);
+
+        $messages = [];
+        $logger   = Mockery::mock(Logger::class);
+        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
+            $messages[] = $message;
+        });
+
+        $client = new Google_Ads_Client(
+            customer_id: '1234567890',
+            developer_token: 'dev_token',
+            client_id: 'client.apps.googleusercontent.com',
+            client_secret: 'secret',
+            refresh_token: 'refresh_abc',
+            logger: $logger,
+        );
+        $client->upload_click_conversion(
+            Click_Id_Type::Wbraid,
+            'wbraid_123',
+            'customers/1234567890/conversionActions/99',
+            '2026-01-15 10:30:00+01:00',
+            100.0,
+            'SEK',
+        );
+
+        expect($messages)->not->toBeEmpty();
+        foreach ($messages as $message) {
+            expect($message)->toContain('wbraid: wbraid_123')->not->toContain('gclid');
+        }
     });
 
     it('returns failure when token refresh fails', function () {
@@ -741,6 +832,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -779,6 +871,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -817,6 +910,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -850,6 +944,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -885,6 +980,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -921,6 +1017,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client(login_customer_id: '9876543210');
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -953,6 +1050,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -986,6 +1084,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -1019,6 +1118,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -1052,6 +1152,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -1088,6 +1189,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -1121,6 +1223,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -1156,6 +1259,7 @@ describe('Google_Ads_Client::upload_click_conversion()', function () {
 
         $client = make_client();
         $result = $client->upload_click_conversion(
+            Click_Id_Type::Gclid,
             'test_gclid',
             'customers/1234567890/conversionActions/99',
             '2026-01-15 10:30:00+01:00',
@@ -1419,6 +1523,36 @@ describe('Google_Ads_Client::create_conversion_action()', function () {
         expect((float) $create['valueSettings']['defaultValue'])->toBe(250.0);
         expect($create['valueSettings']['alwaysUseDefaultValue'])->toBeTrue();
         expect($create['valueSettings']['defaultCurrencyCode'])->toBe('EUR');
+    });
+
+    it('creates an action that counts every conversion, which gbraid and wbraid uploads require', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        // First call: duplicate-name search. Second call: the mutate request.
+        $create = null;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url, array $args) use (&$create) {
+                if (str_ends_with($url, 'googleAds:search')) {
+                    return ['response' => ['code' => 200], 'body' => json_encode(['results' => []])];
+                }
+                $create = json_decode($args['body'], true)['operations'][0]['create'];
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode(['results' => [['resourceName' => 'customers/1234567890/conversionActions/56']]]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        make_client()->create_conversion_action('Braid Lead', 0.0, 'SEK');
+
+        // ONE_PER_CLICK actions reject braids with
+        // ONE_PER_CLICK_CONVERSION_ACTION_NOT_PERMITTED_WITH_BRAID, and the
+        // API documents no default counting type.
+        expect($create['countingType'])->toBe('MANY_PER_CLICK');
     });
 
     it('returns credential error on token refresh failure', function () {

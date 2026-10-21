@@ -105,7 +105,7 @@ describe('Conversion_Reporter::enqueue()', function () {
         $payloads = $reporter->enqueue($attributions, $click_ids, $campaigns, $context);
 
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_abc');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_abc');
         expect($payloads[0]['payload']['attribution_fraction'])->toBe(1.0);
         expect($payloads[0]['payload']['conversion_action_id'])->toBe('99');
         expect($payloads[0]['payload']['conversion_value'])->toBe('1000');
@@ -146,7 +146,7 @@ describe('Conversion_Reporter::enqueue()', function () {
 
         $payloads = $reporter->enqueue(['h1' => 1.0], $click_ids, [], $context);
 
-        expect($payloads[0]['payload']['gclid'])->toBe('G1');
+        expect($payloads[0]['payload']['click_id'])->toBe('G1');
         expect($payloads[0]['not_before'])->toBe(1700021600);
     });
 
@@ -311,7 +311,7 @@ describe('Conversion_Reporter::enqueue()', function () {
 
         // Payload is built even with empty credentials.
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_abc');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_abc');
         expect($payloads[0]['payload']['customer_id'])->toBe('');
         expect($payloads[0]['payload']['developer_token'])->toBe('');
     });
@@ -347,6 +347,26 @@ function gads_click(string $gclid, int $captured_at = 1700000000): array {
 }
 
 /**
+ * Builds a hash's click-ID entries for the given Google Ads identifiers.
+ *
+ * Uses the platform keys the core stores them under, so the entries have
+ * the shape core >= 1.11.0 passes to reporters.
+ *
+ * @param array<string,string> $ids         Identifier type ('gclid', 'gbraid' or 'wbraid') => value.
+ * @param int                  $captured_at Unix timestamp of the click.
+ *
+ * @return array<string,array{id: string, captured_at: int}>
+ */
+function gads_click_ids(array $ids, int $captured_at = 1700000000): array {
+    $platforms = ['gclid' => 'google_ads', 'gbraid' => 'google_ads_gbraid', 'wbraid' => 'google_ads_wbraid'];
+    $entries   = [];
+    foreach ($ids as $type => $id) {
+        $entries[$platforms[$type]] = ['id' => $id, 'captured_at' => $captured_at];
+    }
+    return $entries;
+}
+
+/**
  * Makes the multi-touch filter return the given mode.
  *
  * @param string $mode Filter return value.
@@ -373,7 +393,7 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
         $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
 
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_a');
         expect($payloads[0]['payload']['attribution_fraction'])->toBe(1.0);
     })->with(['highest', 'split']);
 
@@ -389,7 +409,7 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
         $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
 
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_g');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_g');
         expect($payloads[0]['payload']['attribution_fraction'])->toBe(0.4);
         expect($payloads[0]['not_before'])->toBe(1700000500 + 21600);
     })->with(['highest', 'split']);
@@ -427,7 +447,7 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
         $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
 
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_a');
         expect($payloads[0]['payload']['attribution_fraction'])->toEqualWithDelta(1.0, 1e-9);
         expect($payloads[0]['not_before'])->toBe(1700000000 + 21600);
     });
@@ -442,7 +462,7 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
         $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
 
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_b');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_b');
         expect($payloads[0]['payload']['attribution_fraction'])->toBe(1.0);
         expect($payloads[0]['not_before'])->toBe(1700000900 + 21600);
     });
@@ -457,7 +477,7 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
         $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
 
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_a');
     });
 
     it('caps the merged fraction at 1.0', function () use ($context) {
@@ -533,7 +553,7 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
         $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
 
         expect($payloads)->toHaveCount(1);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_a');
         expect($payloads[0]['payload']['attribution_fraction'])->toEqualWithDelta(1.0, 1e-9);
     })->with(['bogus', 'Split', null]);
 
@@ -549,17 +569,228 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
         $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
 
         expect($payloads)->toHaveCount(2);
-        expect($payloads[0]['payload']['gclid'])->toBe('gclid_a');
+        expect($payloads[0]['payload']['click_id'])->toBe('gclid_a');
         expect($payloads[0]['payload']['attribution_fraction'])->toBe(0.7);
         expect($payloads[0]['not_before'])->toBe(1700000000 + 21600);
-        expect($payloads[1]['payload']['gclid'])->toBe('gclid_b');
+        expect($payloads[1]['payload']['click_id'])->toBe('gclid_b');
         expect($payloads[1]['payload']['attribution_fraction'])->toBe(0.3);
         expect($payloads[1]['not_before'])->toBe(1700000500 + 21600);
     });
 
 });
 
+// ─── enqueue() click identifier ───
+
+describe('Conversion_Reporter::enqueue() click identifier', function () {
+
+    $context = ['timestamp' => '2026-01-15 10:30:00'];
+
+    it('queues the Google Ads click identifier the hash has, gclid before gbraid before wbraid', function (string $mode, array $ids, string $type, string $id) use ($context) {
+        use_multi_touch_mode($mode);
+
+        $payloads = selection_reporter()->enqueue(['hash_a' => 1.0], ['hash_a' => gads_click_ids($ids)], [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['click_id_type'])->toBe($type);
+        expect($payloads[0]['payload']['click_id'])->toBe($id);
+    })->with(['highest', 'split'])->with([
+        'only gclid'          => [['gclid' => 'G1'], 'gclid', 'G1'],
+        'only gbraid'         => [['gbraid' => 'B1'], 'gbraid', 'B1'],
+        'only wbraid'         => [['wbraid' => 'W1'], 'wbraid', 'W1'],
+        'gclid and gbraid'    => [['gclid' => 'G1', 'gbraid' => 'B1'], 'gclid', 'G1'],
+        'gclid and wbraid'    => [['gclid' => 'G1', 'wbraid' => 'W1'], 'gclid', 'G1'],
+        'gbraid and wbraid'   => [['gbraid' => 'B1', 'wbraid' => 'W1'], 'gbraid', 'B1'],
+        'all three'           => [['gclid' => 'G1', 'gbraid' => 'B1', 'wbraid' => 'W1'], 'gclid', 'G1'],
+        'empty gclid, gbraid' => [['gclid' => '', 'gbraid' => 'B1'], 'gbraid', 'B1'],
+    ]);
+
+    it('queues nothing for a hash with none of the three identifiers', function (string $mode) use ($context) {
+        use_multi_touch_mode($mode);
+
+        $click_ids = ['hash_a' => ['meta_ads' => ['id' => 'fbclid_a', 'captured_at' => 1700000000]] + gads_click_ids(['gclid' => '', 'gbraid' => '', 'wbraid' => ''])];
+
+        expect(selection_reporter()->enqueue(['hash_a' => 1.0], $click_ids, [], $context))->toBe([]);
+    })->with(['highest', 'split']);
+
+    it('defers the upload six hours from the click of the chosen identifier', function () use ($context) {
+        $click_ids = ['hash_a' => gads_click_ids(['gbraid' => 'B1'], 1700000000) + gads_click_ids(['wbraid' => 'W1'], 1700000900)];
+
+        $payloads = selection_reporter()->enqueue(['hash_a' => 1.0], $click_ids, [], $context);
+
+        expect($payloads[0]['payload']['click_id_type'])->toBe('gbraid');
+        expect($payloads[0]['not_before'])->toBe(1700021600);
+    });
+
+    it('uploads a braid-only click that has the highest fraction in highest mode', function () use ($context) {
+        $attributions = ['hash_g' => 0.3, 'hash_b' => 0.7];
+        $click_ids    = [
+            'hash_g' => gads_click_ids(['gclid' => 'G1'], 1700000900),
+            'hash_b' => gads_click_ids(['gbraid' => 'B1'], 1700000000),
+        ];
+
+        $payloads = selection_reporter()->enqueue($attributions, $click_ids, [], $context);
+
+        expect($payloads)->toHaveCount(1);
+        expect($payloads[0]['payload']['click_id_type'])->toBe('gbraid');
+        expect($payloads[0]['payload']['click_id'])->toBe('B1');
+        expect($payloads[0]['payload']['attribution_fraction'])->toEqualWithDelta(1.0, 1e-9);
+        expect($payloads[0]['not_before'])->toBe(1700021600);
+    });
+
+    it('labels the queue item with the identifier type and the start of its value', function (array $ids, string $label) use ($context) {
+        $payloads = selection_reporter()->enqueue(['hash_a' => 1.0], ['hash_a' => gads_click_ids($ids)], [], $context);
+
+        expect($payloads[0]['label'])->toBe($label);
+    })->with([
+        'gclid'  => [['gclid' => 'Cj0KCQjw_gclid_value'], 'gclid Cj0KCQjw_gcl… → action 99'],
+        'gbraid' => [['gbraid' => '0AAAAAD_gbraid_value'], 'gbraid 0AAAAAD_gbra… → action 99'],
+        'wbraid' => [['wbraid' => 'ClQKCQjw_wbraid_value'], 'wbraid ClQKCQjw_wbr… → action 99'],
+    ]);
+
+    it('names the identifier type in the Enqueued log line', function () use ($context) {
+        $messages = [];
+        $logger   = Mockery::mock(Logger::class);
+        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
+            $messages[] = $message;
+        });
+
+        selection_reporter($logger)->enqueue(['hash_a' => 1.0], ['hash_a' => gads_click_ids(['wbraid' => 'W1'])], [], $context);
+
+        expect($messages)->toHaveCount(1);
+        expect($messages[0])->toStartWith('Enqueued — mode: highest, merged: 1, wbraid: W1,');
+    });
+
+    it('uploads a conversion from a braid-only click with that braid alone', function (string $type) use ($context) {
+        $reporter = selection_reporter();
+
+        $payloads = $reporter->enqueue(['hash_a' => 1.0], ['hash_a' => gads_click_ids([$type => 'BRAID_1'])], [], $context);
+        expect($payloads)->toHaveCount(1);
+
+        $conversion = uploaded_conversion_of($reporter, $payloads[0]['payload']);
+
+        expect(click_identifiers($conversion))->toBe([$type => 'BRAID_1']);
+    })->with(['gbraid', 'wbraid']);
+
+});
+
 // ─── process() ───
+
+/**
+ * Returns a complete queued payload around the given click identifier keys.
+ *
+ * @param array<string,string> $click Identifier keys, e.g. ['gclid' => 'G1']
+ *                                    for a payload queued before 1.11.0.
+ *
+ * @return array<string,mixed>
+ */
+function queued_payload(array $click): array {
+    return $click + [
+        'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+        'attribution_fraction' => 1.0,
+        'customer_id'          => '1234567890',
+        'conversion_action_id' => '99',
+        'conversion_value'     => '1000',
+        'currency_code'        => 'SEK',
+        'developer_token'      => 'dev_token',
+        'client_id'            => 'client.apps.googleusercontent.com',
+        'client_secret'        => 'secret',
+        'refresh_token'        => 'refresh_abc',
+        'login_customer_id'    => '',
+    ];
+}
+
+/**
+ * Processes a payload against an API stub that accepts every upload, and
+ * returns the one conversion the upload request carried.
+ *
+ * @param Conversion_Reporter $reporter Reporter under test.
+ * @param array<string,mixed> $payload  Queued payload.
+ *
+ * @return array<string,mixed> The uploaded ClickConversion.
+ */
+function uploaded_conversion_of(Conversion_Reporter $reporter, array $payload): array {
+    Functions\when('get_transient')->justReturn('cached_token');
+    Functions\when('is_wp_error')->justReturn(false);
+    Functions\when('delete_transient')->justReturn(true);
+    Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+    Functions\when('wp_remote_retrieve_response_code')->alias(fn ($response) => $response['response']['code'] ?? 0);
+    Functions\when('wp_remote_retrieve_body')->alias(fn ($response) => $response['body'] ?? '');
+
+    $body = null;
+    Functions\expect('wp_remote_post')
+        ->once()
+        ->andReturnUsing(function (string $url, array $args) use (&$body) {
+            $body = json_decode($args['body'], true);
+            return ['response' => ['code' => 200], 'body' => json_encode(['results' => [[]]])];
+        });
+
+    expect($reporter->process($payload))->toBeTrue();
+    expect($body['conversions'])->toHaveCount(1);
+
+    return $body['conversions'][0];
+}
+
+/**
+ * Returns the click identifier fields of an uploaded ClickConversion.
+ *
+ * @param array<string,mixed> $conversion Uploaded ClickConversion.
+ *
+ * @return array<string,mixed> Only its gclid, gbraid and wbraid fields.
+ */
+function click_identifiers(array $conversion): array {
+    return array_intersect_key($conversion, array_flip(['gclid', 'gbraid', 'wbraid']));
+}
+
+describe('Conversion_Reporter::process() click identifiers', function () {
+
+    it('uploads a queued click identifier in the field of its type only', function (string $type) {
+        $payload = queued_payload(['click_id_type' => $type, 'click_id' => 'ID_123']);
+
+        $conversion = uploaded_conversion_of(selection_reporter(), $payload);
+
+        expect(click_identifiers($conversion))->toBe([$type => 'ID_123']);
+    })->with(['gclid', 'gbraid', 'wbraid']);
+
+    it('uploads a payload queued before 1.11.0, which has only a gclid, as a gclid', function () {
+        $payload = queued_payload(['gclid' => 'gclid_legacy']);
+
+        $conversion = uploaded_conversion_of(selection_reporter(), $payload);
+
+        expect(click_identifiers($conversion))->toBe(['gclid' => 'gclid_legacy']);
+        expect($conversion['conversionAction'])->toBe('customers/1234567890/conversionActions/99');
+    });
+
+    it('names the identifier type when an upload fails', function () {
+        Functions\when('get_transient')->justReturn('cached_token');
+        Functions\when('is_wp_error')->justReturn(false);
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(fn ($response) => $response['response']['code'] ?? 0);
+        Functions\when('wp_remote_retrieve_body')->alias(fn ($response) => $response['body'] ?? '');
+        Functions\when('wp_remote_post')->justReturn(['response' => ['code' => 403], 'body' => 'Forbidden']);
+
+        $logged = [];
+        \Patchwork\redefine('error_log', function (string $message) use (&$logged) {
+            $logged[] = $message;
+            return true;
+        });
+
+        $messages = [];
+        $logger   = Mockery::mock(Logger::class)->shouldIgnoreMissing();
+        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
+            $messages[] = $message;
+        });
+
+        $result = selection_reporter($logger)->process(queued_payload(['click_id_type' => 'wbraid', 'click_id' => 'W_123']));
+
+        expect($result)->toBeFalse();
+        expect($logged)->toHaveCount(1);
+        expect($logged[0])->toContain('wbraid W_123')->not->toContain('gclid');
+        expect($messages[0])->toStartWith('Processing — wbraid: W_123,');
+
+        \Patchwork\restoreAll();
+    });
+
+});
 
 describe('Conversion_Reporter::process()', function () {
 

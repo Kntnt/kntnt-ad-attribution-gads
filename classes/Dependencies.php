@@ -49,13 +49,17 @@ final class Dependencies {
 	 * Core 1.10.0 stores click IDs per click and passes reporters the click
 	 * IDs of the click a conversion is attributed to. Earlier versions pass
 	 * the latest click ID captured for the tracking URL, which may be
-	 * another visitor's gclid. Read by the bootstrap gate in the main
+	 * another visitor's gclid. Core 1.11.0 accepts capturers declared
+	 * non-unique, which the gbraid and wbraid capturers must be: a braid
+	 * value can be shared between clicks, so in 1.10.0 a new visitor's click
+	 * would count as a repeat of an older click with the same braid and
+	 * inherit that click's gclid. Read by the bootstrap gate in the main
 	 * plugin file.
 	 *
 	 * @var string
 	 * @since 1.11.0
 	 */
-	public const MIN_CORE_VERSION = '1.10.0';
+	public const MIN_CORE_VERSION = '1.11.0';
 
 	/**
 	 * Full path to this add-on's main plugin file.

@@ -8,7 +8,7 @@ Add-on plugin for [Kntnt Ad Attribution](https://github.com/Kntnt/kntnt-ad-attri
 
 ## Description
 
-Kntnt Ad Attribution gives you internal, privacy-friendly lead attribution. This add-on extends it with Google Ads integration — capturing the `gclid` (Google Click Identifier) at ad click time and reporting conversions back to Google Ads via the Offline Conversion Upload API.
+Kntnt Ad Attribution gives you internal, privacy-friendly lead attribution. This add-on extends it with Google Ads integration — capturing the Google Ads click identifier (`gclid`, `gbraid` or `wbraid`) at ad click time and reporting conversions back to Google Ads via the Offline Conversion Upload API.
 
 The result: you keep the core plugin's internal attribution data **and** get conversion data in Google Ads, allowing Google's bidding algorithms to optimize for actual leads rather than just clicks.
 
@@ -16,24 +16,26 @@ The result: you keep the core plugin's internal attribution data **and** get con
 
 The plugin uses two adapter hooks provided by the core plugin:
 
-1. **Click-ID capture** (`kntnt_ad_attr_click_id_capturers`): Registers `'google_ads' => 'gclid'`. When a visitor clicks a tracking URL that has a `gclid` query parameter, the core plugin's `Click_Handler` captures the value and stores it with that click, so each click keeps its own `gclid` even when other visitors click the same tracking URL. No custom tables or storage are needed — the core handles everything.
+1. **Click-ID capture** (`kntnt_ad_attr_click_id_capturers`): Registers the three query parameters Google Ads uses to identify a click: `gclid` (as `'google_ads' => 'gclid'`), `gbraid` and `wbraid` (as `google_ads_gbraid` and `google_ads_wbraid`). Google uses `gbraid` and `wbraid` for some iOS traffic, and some browsers strip `gclid` from the URL, so a click may arrive with a braid but no `gclid`. When a visitor clicks a tracking URL that carries any of them, the core plugin's `Click_Handler` captures the values and stores them with that click, so each click keeps its own identifiers even when other visitors click the same tracking URL. Several visitors can arrive with the same `gbraid` or `wbraid`, so both are registered as non-unique: a shared braid never makes a new visitor's click count as a repeat of an older one. Clicks recorded before this add-on captured braids have only their `gclid`. No custom tables or storage are needed — the core handles everything.
 
-2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed with a weight above zero to a click that carried a `gclid`, a payload with that click's `gclid` is built and queued for asynchronous processing. By default, each conversion produces at most one upload, even under a multi-touch attribution model (see [Multi-Touch Attribution](#multi-touch-attribution)). Each job is deferred by 6 hours from the time of the attributed click (via the core queue's `not_before` parameter), giving Google Ads time to register the click before accepting the conversion upload. Clicks already older than 6 hours are processed immediately. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
+2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed with a weight above zero to a click that carried a Google Ads click identifier, a payload with that identifier is built and queued for asynchronous processing. Each upload carries exactly one identifier: the click's `gclid` if it has one, else its `gbraid`, else its `wbraid`. By default, each conversion produces at most one upload, even under a multi-touch attribution model (see [Multi-Touch Attribution](#multi-touch-attribution)). Each job is deferred by 6 hours from the time of the attributed click (via the core queue's `not_before` parameter), giving Google Ads time to register the click before accepting the conversion upload. Clicks already older than 6 hours are processed immediately. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
 
-Both hooks rely on Kntnt Ad Attribution 1.10.0 or later, the first version that stores click IDs per click. Earlier versions kept one click ID per tracking URL and reported the latest one, which could belong to another visitor. With an older core version the add-on registers neither hook and shows an admin notice asking you to update the core plugin. The core's 1.10.0 update deletes click IDs stored by earlier versions, so conversions attributed to clicks made before that update are not uploaded.
+Google Ads accepts `gbraid` and `wbraid` uploads only for a conversion action that counts every conversion (**Count: Every** in Google Ads, `MANY_PER_CLICK` in the API), not one per click. The **Create Conversion Action** button creates such an action. If you use an existing action that counts one conversion per click, its braid uploads fail and are retried when you save the settings, for example after switching it to **Every**.
+
+Both hooks rely on Kntnt Ad Attribution 1.11.0 or later. Version 1.10.0 was the first to store click IDs per click; earlier versions kept one click ID per tracking URL and reported the latest one, which could belong to another visitor. Version 1.11.0 lets a click-ID capturer declare that its value may be shared between clicks, which the `gbraid` and `wbraid` capturers rely on. With an older core version the add-on registers neither hook and shows an admin notice asking you to update the core plugin. The core's 1.10.0 update deletes click IDs stored by earlier versions, so conversions attributed to clicks made before that update are not uploaded.
 
 The plugin creates no custom tables, CPTs, or cookies. It schedules a weekly background check of the Google Ads connection and registers three REST API endpoints for settings page operations (test connection, create conversion action, fetch conversion action details). It relies on the core plugin's infrastructure for click-ID storage and conversion queuing.
 
 ### Features
 
-- Automatically captures `gclid` parameters when visitors arrive via Google Ads tracking URLs.
+- Automatically captures `gclid`, `gbraid` and `wbraid` parameters when visitors arrive via Google Ads tracking URLs, and uploads a conversion with `gbraid` or `wbraid` when the click has no `gclid`.
 - Queues and uploads conversions to Google Ads via the Offline Conversion Upload API.
 - **One upload per conversion** — clicks with zero attribution weight are never uploaded, and by default a multi-touch conversion is uploaded once, so Google Ads doesn't count one lead as several conversions. See [Multi-Touch Attribution](#multi-touch-attribution).
 - **Deferred upload** — each conversion upload is deferred by 6 hours from the time of the attributed click, giving Google Ads time to register the click. Clicks older than 6 hours are processed immediately.
 - Resilient queuing — conversions are always queued regardless of credential status. Missing credentials are filled in from current settings when the job is processed.
 - Failed jobs are automatically reset when settings are updated with valid credentials.
 - **Test Connection** button verifies all credentials — OAuth2 tokens, Customer ID, Developer Token, Login Customer ID, and Conversion Action ID — in a single click. Uses current form values, so you can test before saving.
-- **Create Conversion Action** button creates a new conversion action in Google Ads directly from the settings page. The ID is filled in automatically on success.
+- **Create Conversion Action** button creates a new conversion action in Google Ads directly from the settings page. The action counts every conversion, which `gbraid` and `wbraid` uploads require. The ID is filled in automatically on success.
 - Auto-fetches conversion action name and category from Google Ads when an ID is present.
 - Persistent admin notice warns when uploads fail due to missing or invalid credentials.
 - **Weekly connection check** — tests the saved credentials every Monday night, retries twice on failure, and emails the site administrator if all three attempts fail. See [Weekly Connection Check](#weekly-connection-check).
@@ -64,7 +66,7 @@ The **Test Connection** button verifies all credentials using the current form v
 
 ### Limitations
 
-- **Requires the core plugin.** This is an add-on — [Kntnt Ad Attribution](https://github.com/Kntnt/kntnt-ad-attribution) 1.10.0 or later must be installed and active.
+- **Requires the core plugin.** This is an add-on — [Kntnt Ad Attribution](https://github.com/Kntnt/kntnt-ad-attribution) 1.11.0 or later must be installed and active.
 - **Google Ads API credentials required.** Conversion reporting requires a Google Ads Customer ID, Conversion Action ID, OAuth2 credentials, and a Developer Token. Configure these under Settings > Google Ads Attribution.
 - **Attribution window limited by cookie lifetime.** The core plugin's cookie lifetime (default: 90 days) determines the maximum attribution window, even though Google Ads allows up to 90 days for offline conversion uploads.
 
@@ -90,9 +92,9 @@ If the core plugin is not active when you try to activate this add-on, activatio
 |-------------|---------|
 | PHP | 8.3 |
 | WordPress | 6.9 |
-| Kntnt Ad Attribution | 1.10.0 |
+| Kntnt Ad Attribution | 1.11.0 |
 
-The plugin checks the PHP version on activation and aborts with a clear error message if the requirement is not met. If the core plugin is older than 1.10.0, the add-on stays inactive and an admin notice names the required and the installed version.
+The plugin checks the PHP version on activation and aborts with a clear error message if the requirement is not met. If the core plugin is older than 1.11.0, the add-on stays inactive and an admin notice names the required and the installed version.
 
 
 
@@ -163,6 +165,7 @@ You can either create a conversion action from the plugin's settings page or man
    - Choose **Import > Other data sources or CRMs > Track conversions from clicks**.
    - Name the action (e.g. "Offline Lead") and save.
 3. Open the conversion action. Copy the numeric **Conversion Action ID** — you can find it in the URL parameter `ctId` (e.g. `ctId=7171477836` → the ID is `7171477836`), or in the action details.
+4. Check that the action's **Count** setting is **Every**, not **One**. Google Ads rejects `gbraid` and `wbraid` uploads for an action that counts one conversion per click.
 
 > **If you were previously importing conversions from another system** (e.g. Matomo's Conversion Export), you should disable that import to avoid double-counting. The plugin replaces the need for external conversion imports.
 
@@ -273,7 +276,7 @@ Enter the 10-digit Customer ID of your **Manager Account (MCC)**. You can find i
 
 A visitor may click several tracking URLs before converting. The core plugin's attribution model, which the `kntnt_ad_attr_attribution` filter can replace, gives each click a weight (a fraction). The default last-click model gives the latest click `1.0` and every other click `0.0`.
 
-Only *eligible* clicks are uploaded to Google Ads: clicks with a weight above zero and a `gclid`. Google Ads counts every uploaded click conversion as one conversion, whatever its value. A multi-touch model that splits one lead between two Google Ads clicks would therefore show up as two conversions. The `kntnt_ad_attr_gads_multi_touch` filter decides what happens:
+Only *eligible* clicks are uploaded to Google Ads: clicks with a weight above zero and a Google Ads click identifier (`gclid`, `gbraid` or `wbraid`). Google Ads counts every uploaded click conversion as one conversion, whatever its value. A multi-touch model that splits one lead between two Google Ads clicks would therefore show up as two conversions. The `kntnt_ad_attr_gads_multi_touch` filter decides what happens:
 
 * **`highest`** (default) — at most one upload per conversion. It uses the Google Ads click with the highest weight. Among equal weights the most recent click wins, and among equally recent clicks the first one wins. The upload carries the sum of the weights of all eligible Google Ads clicks, capped at 1.0. If a click from another platform holds part of the weight, Google Ads gets only its own share of the conversion value.
 * **`split`** — one upload per eligible Google Ads click, each with its own weight. Google Ads gets the same total value as in `highest` but counts one conversion per click.
@@ -298,7 +301,7 @@ No. This add-on is specifically for Google Ads. The core plugin works with all a
 
 **Does this plugin send personal data to Google?**
 
-The plugin sends the `gclid` (a click identifier generated by Google) and conversion metadata (timestamp, conversion action) to Google Ads. No email addresses, phone numbers, names, or other directly identifying information is sent. The `gclid` is a pseudonymous identifier that Google can link to a user within its own systems. Consult your legal advisor regarding GDPR implications of this data transfer.
+The plugin sends one click identifier generated by Google (the `gclid`, or the `gbraid` or `wbraid` when the click has no `gclid`) and conversion metadata (timestamp, conversion action) to Google Ads. No email addresses, phone numbers, names, or other directly identifying information is sent. The `gclid` is a pseudonymous identifier that Google can link to a user within its own systems. Consult your legal advisor regarding GDPR implications of this data transfer.
 
 **I just created a conversion action and the log shows upload errors. Is something wrong?**
 
@@ -364,7 +367,7 @@ Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHu
 
 1. `Updater` — GitHub-based update checker
 2. `Migrator` — database migration runner
-3. `Gclid_Capturer` — registers `gclid` parameter on the click-ID capture filter
+3. `Click_Id_Capturer` — registers the Google Ads click-ID parameters on the click-ID capture filter
 4. `Settings` — reads/writes plugin settings option
 5. Core `Logger` — retrieved from `Kntnt\Ad_Attribution\Plugin::get_instance()->logger`
 6. `Settings_Page` — admin settings page under Settings > Google Ads Attribution
@@ -399,7 +402,8 @@ kntnt-ad-attribution-gads/
 │   ├── Dependencies.php               ← Core plugin dependency enforcement
 │   ├── Updater.php                    ← GitHub release update checker
 │   ├── Migrator.php                   ← Database migration runner (version-based)
-│   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
+│   ├── Click_Id_Capturer.php         ← Registers Google Ads click IDs on the click-ID capture filter
+│   ├── Click_Id_Type.php             ← Google Ads click ID types (gclid, gbraid, wbraid) and precedence
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
 │   ├── Settings_Page.php             ← Admin settings page (3 sections: credentials, action, defaults)
 │   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
@@ -422,7 +426,7 @@ kntnt-ad-attribution-gads/
         ├── MigratorTest.php           ← Migration runner tests
         ├── PluginTest.php             ← Plugin metadata and lifecycle tests
         ├── UpdaterTest.php            ← GitHub update checker tests
-        ├── GclidCapturerTest.php      ← Gclid capturer registration tests
+        ├── ClickIdCapturerTest.php    ← Click-ID capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
         ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
         ├── BootstrapSafetyTest.php    ← Try-catch safety wrapper tests
@@ -503,7 +507,8 @@ PHP 8.3+ and Composer. With DDEV, only DDEV itself needs to be installed locally
 - `uninstall.php` runs without the namespace autoloader — use fully qualified function calls and raw `$wpdb`.
 - The `Dependencies` class hooks `plugin_action_links` in its constructor, before `plugins_loaded`, so the deactivation guard is active regardless of plugin load order.
 - `Dependencies::guard_activation()` loads `plugin.php` explicitly because `is_plugin_active()` may not be available during activation hooks.
-- The minimum core version is `Dependencies::MIN_CORE_VERSION` (`1.10.0`, the first core release that stores click IDs per click). The `plugins_loaded` bootstrap in the main plugin file compares it with `\Kntnt\Ad_Attribution\Plugin::get_version()`. Raise it whenever the add-on starts to rely on a newer core contract.
+- The minimum core version is `Dependencies::MIN_CORE_VERSION` (`1.11.0`, the first core release that accepts non-unique click-ID capturers; 1.10.0 was the first to store click IDs per click). The `plugins_loaded` bootstrap in the main plugin file compares it with `\Kntnt\Ad_Attribution\Plugin::get_version()`. Raise it whenever the add-on starts to rely on a newer core contract.
+- Queue payloads carry the click identifier as `click_id_type` (`gclid`, `gbraid` or `wbraid`) and `click_id`. Payloads queued before braid support have only a `gclid` key, and `Conversion_Reporter::process()` reads them as type `gclid`. Keep that fallback as long as such jobs can still be in a queue.
 
 ### Contributor FAQ
 

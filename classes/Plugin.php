@@ -50,12 +50,12 @@ final class Plugin {
 	public readonly Migrator $migrator;
 
 	/**
-	 * Gclid capturer component instance.
+	 * Click-ID capturer component instance.
 	 *
-	 * @var Gclid_Capturer
+	 * @var Click_Id_Capturer
 	 * @since 0.2.0
 	 */
-	public readonly Gclid_Capturer $gclid_capturer;
+	public readonly Click_Id_Capturer $click_id_capturer;
 
 	/**
 	 * Settings component instance.
@@ -125,7 +125,7 @@ final class Plugin {
 		// Initialize plugin components.
 		$this->updater              = new Updater();
 		$this->migrator             = new Migrator();
-		$this->gclid_capturer       = new Gclid_Capturer();
+		$this->click_id_capturer    = new Click_Id_Capturer();
 		$this->settings             = new Settings();
 
 		// Use the core plugin's centralized Logger.
@@ -269,8 +269,8 @@ final class Plugin {
 		// Check for updates from GitHub.
 		add_filter( 'pre_set_site_transient_update_plugins', [ $this->updater, 'check_for_updates' ] );
 
-		// Register gclid capture for Google Ads click tracking.
-		add_filter( 'kntnt_ad_attr_click_id_capturers', [ $this->gclid_capturer, 'register' ] );
+		// Register Google Ads click-ID capture.
+		add_filter( 'kntnt_ad_attr_click_id_capturers', [ $this->click_id_capturer, 'register' ] );
 
 		// Register conversion reporter for Google Ads offline upload.
 		add_filter( 'kntnt_ad_attr_conversion_reporters', [ $this->conversion_reporter, 'register' ] );

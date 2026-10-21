@@ -177,36 +177,46 @@ final class Google_Ads_Client {
 	/**
 	 * Uploads a single click conversion to Google Ads.
 	 *
-	 * @param string $gclid               Google click identifier.
-	 * @param string $conversion_action    Full resource name (customers/{id}/conversionActions/{id}).
-	 * @param string $conversion_datetime  Conversion timestamp in "Y-m-d H:i:sP" format.
-	 * @param float  $conversion_value     Monetary value of the conversion.
-	 * @param string $currency_code        ISO 4217 currency code.
+	 * The click identifier is sent in the `ClickConversion` field named
+	 * after its type, so each conversion carries exactly one identifier.
+	 *
+	 * @param Click_Id_Type $click_id_type       Type of the click identifier.
+	 * @param string        $click_id            Click identifier value.
+	 * @param string        $conversion_action   Full resource name (customers/{id}/conversionActions/{id}).
+	 * @param string        $conversion_datetime Conversion timestamp in "Y-m-d H:i:sP" format.
+	 * @param float         $conversion_value    Monetary value of the conversion.
+	 * @param string        $currency_code       ISO 4217 currency code.
 	 *
 	 * @return array{success: bool, error: string, credential_error: bool, permanent_failure: bool} Result with success flag, error message, credential error flag, and permanent failure flag.
 	 * @since 0.3.0
+	 * @since 1.11.0 Takes the click identifier's type and value instead of a gclid.
 	 */
 	public function upload_click_conversion(
-		string $gclid,
+		Click_Id_Type $click_id_type,
+		string $click_id,
 		string $conversion_action,
 		string $conversion_datetime,
 		float $conversion_value,
 		string $currency_code,
 	): array {
 
+		// Names the identifier in every log line, e.g. "gbraid: 0AAAAAD…".
+		$click = "{$click_id_type->value}: {$click_id}";
+
 		// Obtain a valid access token.
-		$this->logger?->info( 'GADS', "Uploading conversion — gclid: {$gclid}, action: {$conversion_action}, value: {$conversion_value} {$currency_code}" );
+		$this->logger?->info( 'GADS', "Uploading conversion — {$click}, action: {$conversion_action}, value: {$conversion_value} {$currency_code}" );
 		$access_token = $this->get_access_token();
 		if ( $access_token === null ) {
-			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: " . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
+			$this->logger?->error( 'GADS', "Conversion upload failed — {$click}, error: " . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
 			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'permanent_failure' => false ];
 		}
 
-		// Build the conversion payload.
+		// Build the conversion payload. Only the field of the identifier's
+		// type is set: Google Ads rejects gbraid together with wbraid.
 		$body = [
 			'conversions' => [
 				[
-					'gclid'              => $gclid,
+					$click_id_type->value => $click_id,
 					'conversionAction'   => $conversion_action,
 					'conversionDateTime' => $conversion_datetime,
 					'conversionValue'    => $conversion_value,
@@ -226,7 +236,7 @@ final class Google_Ads_Client {
 
 		// Handle WP_Error (network failure, timeout, etc.).
 		if ( is_wp_error( $response ) ) {
-			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: {$response->get_error_message()}" );
+			$this->logger?->error( 'GADS', "Conversion upload failed — {$click}, error: {$response->get_error_message()}" );
 			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false, 'permanent_failure' => false ];
 		}
 
@@ -234,7 +244,7 @@ final class Google_Ads_Client {
 		$status_code = wp_remote_retrieve_response_code( $response );
 		if ( $status_code !== 200 ) {
 			$response_body = wp_remote_retrieve_body( $response );
-			$this->logger?->error( 'GADS', "Conversion upload failed — gclid: {$gclid}, error: HTTP {$status_code}: {$response_body}" );
+			$this->logger?->error( 'GADS', "Conversion upload failed — {$click}, error: HTTP {$status_code}: {$response_body}" );
 			return [ 'success' => false, 'error' => "HTTP {$status_code}: {$response_body}", 'credential_error' => false, 'permanent_failure' => false ];
 		}
 
@@ -245,11 +255,11 @@ final class Google_Ads_Client {
 			$errors        = self::extract_partial_failure_errors( $response_body['partialFailureError'] );
 			$permanent     = self::is_permanent_partial_failure( $errors, $top_message );
 			$error_message = self::describe_partial_failure( $errors, $top_message );
-			$this->logger?->error( 'GADS', "Conversion partial failure — gclid: {$gclid}, error: {$error_message}" . ( $permanent ? ' (permanent, will not retry)' : '' ) );
+			$this->logger?->error( 'GADS', "Conversion partial failure — {$click}, error: {$error_message}" . ( $permanent ? ' (permanent, will not retry)' : '' ) );
 			return [ 'success' => false, 'error' => $error_message, 'credential_error' => false, 'permanent_failure' => $permanent ];
 		}
 
-		$this->logger?->info( 'GADS', "Conversion uploaded — gclid: {$gclid}" );
+		$this->logger?->info( 'GADS', "Conversion uploaded — {$click}" );
 
 		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'permanent_failure' => false ];
 	}
@@ -267,6 +277,7 @@ final class Google_Ads_Client {
 	 *
 	 * @return array{success: bool, error: string, credential_error: bool, conversion_action_id: string} Result with success flag, error message, credential error flag, and new conversion action ID.
 	 * @since 1.5.0
+	 * @since 1.11.0 Creates the action with counting type MANY_PER_CLICK.
 	 */
 	public function create_conversion_action(
 		string $name,
@@ -297,7 +308,9 @@ final class Google_Ads_Client {
 			return $fail( sprintf( 'A conversion action named "%s" already exists (ID: %s).', $name, $existing['id'] ) );
 		}
 
-		// Build the create payload.
+		// Build the create payload. The counting type is set explicitly
+		// because the API documents no default and gbraid and wbraid uploads
+		// fail against an action that counts one conversion per click.
 		$body = [
 			'operations' => [
 				[
@@ -306,6 +319,7 @@ final class Google_Ads_Client {
 						'type'          => 'UPLOAD_CLICKS',
 						'category'      => $category,
 						'status'        => 'ENABLED',
+						'countingType'  => 'MANY_PER_CLICK',
 						'valueSettings' => [
 							'defaultValue'          => $default_value,
 							'alwaysUseDefaultValue' => true,
