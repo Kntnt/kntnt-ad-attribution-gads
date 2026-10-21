@@ -59,3 +59,6 @@ composer.lock
 
 # PHP
 *.phar
+
+# Build output
+/release-assets/

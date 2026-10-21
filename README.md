@@ -329,29 +329,15 @@ cd kntnt-ad-attribution-gads
 
 ### Building a Release ZIP
 
-The `build-release-zip.sh` script creates a clean distribution ZIP by removing development files (CLAUDE.md, tests, etc.) and packaging the result. It can build from local files (default) or from a specific git tag. Exactly one destination (`--output`, `--update`, or `--create`) is required.
+`bin/build-release-assets` builds the distribution ZIP from the committed state at `HEAD`: it takes the plugin's runtime files from git and packages them under a `kntnt-ad-attribution-gads/` directory in `release-assets/kntnt-ad-attribution-gads.zip`. Uncommitted changes are never included.
 
 ```bash
-# Build from local files → zip in current directory
-./build-release-zip.sh --output .
-
-# Build from local files → zip with custom filename
-./build-release-zip.sh --output ~/Desktop/custom-name.zip
-
-# Build from a git tag → zip in /tmp
-./build-release-zip.sh --tag 0.1.0 --output /tmp
-
-# Build from a git tag, create a new GitHub release, and upload
-./build-release-zip.sh --tag 0.1.0 --create
-
-# Build from a git tag and upload to an existing GitHub release
-./build-release-zip.sh --tag 0.1.0 --update
-
-# Show full usage
-./build-release-zip.sh --help
+bin/build-release-assets
 ```
 
-Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHub CLI](https://cli.github.com/)).
+To build an earlier version, check out its tag first. When `HEAD` carries a version tag, the build fails unless the plugin header's `Version` matches it. The command never publishes anything: a release runs it and attaches what it leaves in `release-assets/` to the GitHub release, and the `Updater` installs the ZIP from there.
+
+Requires `git`, `tar` and `zip`.
 
 ### Architecture Overview
 
@@ -526,4 +512,4 @@ It is a context file for [Claude Code](https://docs.anthropic.com/en/docs/claude
 
 **How are releases distributed?**
 
-The plugin is distributed via GitHub Releases, not wordpress.org. The `Updater` class hooks into the WordPress plugin update system and checks for new GitHub releases automatically. Use `build-release-zip.sh` to create a distribution ZIP — see [Building a Release ZIP](#building-a-release-zip).
+The plugin is distributed via GitHub Releases, not wordpress.org. The `Updater` class hooks into the WordPress plugin update system and checks for new GitHub releases automatically. Use `bin/build-release-assets` to create a distribution ZIP — see [Building a Release ZIP](#building-a-release-zip).
