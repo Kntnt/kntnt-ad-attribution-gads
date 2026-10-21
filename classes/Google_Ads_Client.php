@@ -200,14 +200,15 @@ final class Google_Ads_Client {
 		string $currency_code,
 	): array {
 
-		// Names the identifier in every log line, e.g. "gbraid: 0AAAAAD…".
-		$click = "{$click_id_type->value}: {$click_id}";
+		// The value alone does not show which field it was sent in, and a
+		// rejection is only traceable if the log names that field.
+		$click_id_for_logger = "{$click_id_type->value}: {$click_id}";
 
 		// Obtain a valid access token.
-		$this->logger?->info( 'GADS', "Uploading conversion — {$click}, action: {$conversion_action}, value: {$conversion_value} {$currency_code}" );
+		$this->logger?->info( 'GADS', "Uploading conversion — {$click_id_for_logger}, action: {$conversion_action}, value: {$conversion_value} {$currency_code}" );
 		$access_token = $this->get_access_token();
 		if ( $access_token === null ) {
-			$this->logger?->error( 'GADS', "Conversion upload failed — {$click}, error: " . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
+			$this->logger?->error( 'GADS', "Conversion upload failed — {$click_id_for_logger}, error: " . ( $this->last_refresh_error ?: 'Failed to obtain access token.' ) );
 			return [ 'success' => false, 'error' => $this->last_refresh_error ?: 'Failed to obtain access token.', 'credential_error' => true, 'permanent_failure' => false ];
 		}
 
@@ -217,10 +218,10 @@ final class Google_Ads_Client {
 			'conversions' => [
 				[
 					$click_id_type->value => $click_id,
-					'conversionAction'   => $conversion_action,
-					'conversionDateTime' => $conversion_datetime,
-					'conversionValue'    => $conversion_value,
-					'currencyCode'       => $currency_code,
+					'conversionAction'    => $conversion_action,
+					'conversionDateTime'  => $conversion_datetime,
+					'conversionValue'     => $conversion_value,
+					'currencyCode'        => $currency_code,
 				],
 			],
 			'partialFailure' => true,
@@ -236,7 +237,7 @@ final class Google_Ads_Client {
 
 		// Handle WP_Error (network failure, timeout, etc.).
 		if ( is_wp_error( $response ) ) {
-			$this->logger?->error( 'GADS', "Conversion upload failed — {$click}, error: {$response->get_error_message()}" );
+			$this->logger?->error( 'GADS', "Conversion upload failed — {$click_id_for_logger}, error: {$response->get_error_message()}" );
 			return [ 'success' => false, 'error' => $response->get_error_message(), 'credential_error' => false, 'permanent_failure' => false ];
 		}
 
@@ -244,7 +245,7 @@ final class Google_Ads_Client {
 		$status_code = wp_remote_retrieve_response_code( $response );
 		if ( $status_code !== 200 ) {
 			$response_body = wp_remote_retrieve_body( $response );
-			$this->logger?->error( 'GADS', "Conversion upload failed — {$click}, error: HTTP {$status_code}: {$response_body}" );
+			$this->logger?->error( 'GADS', "Conversion upload failed — {$click_id_for_logger}, error: HTTP {$status_code}: {$response_body}" );
 			return [ 'success' => false, 'error' => "HTTP {$status_code}: {$response_body}", 'credential_error' => false, 'permanent_failure' => false ];
 		}
 
@@ -255,11 +256,11 @@ final class Google_Ads_Client {
 			$errors        = self::extract_partial_failure_errors( $response_body['partialFailureError'] );
 			$permanent     = self::is_permanent_partial_failure( $errors, $top_message );
 			$error_message = self::describe_partial_failure( $errors, $top_message );
-			$this->logger?->error( 'GADS', "Conversion partial failure — {$click}, error: {$error_message}" . ( $permanent ? ' (permanent, will not retry)' : '' ) );
+			$this->logger?->error( 'GADS', "Conversion partial failure — {$click_id_for_logger}, error: {$error_message}" . ( $permanent ? ' (permanent, will not retry)' : '' ) );
 			return [ 'success' => false, 'error' => $error_message, 'credential_error' => false, 'permanent_failure' => $permanent ];
 		}
 
-		$this->logger?->info( 'GADS', "Conversion uploaded — {$click}" );
+		$this->logger?->info( 'GADS', "Conversion uploaded — {$click_id_for_logger}" );
 
 		return [ 'success' => true, 'error' => '', 'credential_error' => false, 'permanent_failure' => false ];
 	}
