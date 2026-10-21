@@ -97,6 +97,9 @@ final class Conversion_Reporter {
 	 *   but counts one conversion.
 	 * - `split`: one upload per eligible attribution with its own fraction.
 	 *
+	 * Each upload carries one click identifier: the hash's gclid, else its
+	 * gbraid, else its wbraid (see google_ads_click()).
+	 *
 	 * Snapshots current settings into each payload as raw values. Derived
 	 * values (resource name, attributed value) are computed at process time
 	 * so payloads remain useful even if credentials were empty at enqueue time.
@@ -175,9 +178,9 @@ final class Conversion_Reporter {
 	 * in line with the core's last-click default; among equal capture times
 	 * the first in input order wins, so the choice is deterministic.
 	 *
-	 * @param non-empty-list<array{fraction: float, click: array{id: string, captured_at: int}}> $eligible Eligible attributions in input order.
+	 * @param non-empty-list<array{fraction: float, click: array{type: Click_Id_Type, id: string, captured_at: int}}> $eligible Eligible attributions in input order.
 	 *
-	 * @return array{fraction: float, click: array{id: string, captured_at: int}} The chosen attribution.
+	 * @return array{fraction: float, click: array{type: Click_Id_Type, id: string, captured_at: int}} The chosen attribution.
 	 * @since 1.11.0
 	 */
 	private function select_highest( array $eligible ): array {
@@ -197,25 +200,31 @@ final class Conversion_Reporter {
 	/**
 	 * Builds one queue item for a Google Ads click and logs it.
 	 *
-	 * @param array{id: string, captured_at: int} $click    Structured Google Ads click data.
-	 * @param float                               $fraction Attribution fraction to upload.
-	 * @param array<string,string>                $settings Current plugin settings.
-	 * @param string                              $datetime Conversion time in Google Ads format.
-	 * @param string                              $note     Mode details for the log line.
+	 * The payload carries the click identifier as `click_id_type` (the
+	 * Click_Id_Type value) and `click_id`. Payloads from before 1.11.0 have
+	 * a `gclid` key instead, which process() still reads.
+	 *
+	 * @param array{type: Click_Id_Type, id: string, captured_at: int} $click    Structured Google Ads click data.
+	 * @param float                                                    $fraction Attribution fraction to upload.
+	 * @param array<string,string>                                     $settings Current plugin settings.
+	 * @param string                                                   $datetime Conversion time in Google Ads format.
+	 * @param string                                                   $note     Mode details for the log line.
 	 *
 	 * @return array<string,mixed> Queue item with payload, label and not_before.
 	 * @since 1.11.0
 	 */
 	private function build_item( array $click, float $fraction, array $settings, string $datetime, string $note ): array {
-		$gclid                = $click['id'];
+		$type                 = $click['type']->value;
+		$click_id             = $click['id'];
 		$not_before           = $click['captured_at'] + self::UPLOAD_DELAY_SECONDS;
 		$conversion_action_id = $settings['conversion_action_id'];
 
-		$this->logger->info( 'GADS', "Enqueued — {$note}, gclid: {$gclid}, datetime: {$datetime}, fraction: {$fraction}" );
+		$this->logger->info( 'GADS', "Enqueued — {$note}, {$type}: {$click_id}, datetime: {$datetime}, fraction: {$fraction}" );
 
 		return [
 			'payload'    => [
-				'gclid'                => $gclid,
+				'click_id_type'        => $type,
+				'click_id'             => $click_id,
 				'conversion_datetime'  => $datetime,
 				'attribution_fraction' => $fraction,
 				'customer_id'          => $settings['customer_id'],
@@ -228,7 +237,7 @@ final class Conversion_Reporter {
 				'refresh_token'        => $settings['refresh_token'],
 				'login_customer_id'    => $settings['login_customer_id'],
 			],
-			'label'      => sprintf( 'gclid %s → action %s', substr( $gclid, 0, 12 ) . '…', $conversion_action_id ),
+			'label'      => sprintf( '%s %s → action %s', $type, substr( $click_id, 0, 12 ) . '…', $conversion_action_id ),
 			'not_before' => $not_before,
 		];
 	}
@@ -237,12 +246,13 @@ final class Conversion_Reporter {
 	 * Tells whether an attribution may produce a Google Ads upload.
 	 *
 	 * The single definition of an eligible attribution: positive weight and
-	 * a Google Ads click identifier. A zero-weight upload would still count
-	 * as a full conversion in Google Ads, so a missing weight disqualifies
-	 * an attribution as surely as a missing click identifier.
+	 * a Google Ads click identifier, which is a gclid, gbraid or wbraid (see
+	 * google_ads_click()). A zero-weight upload would still count as a full
+	 * conversion in Google Ads, so a missing weight disqualifies an
+	 * attribution as surely as a missing click identifier.
 	 *
-	 * @param float                                    $fraction Attribution fraction of the hash.
-	 * @param array{id: string, captured_at: int}|null $click    The hash's Google Ads click from google_ads_click().
+	 * @param float                                                         $fraction Attribution fraction of the hash.
+	 * @param array{type: Click_Id_Type, id: string, captured_at: int}|null $click    The hash's Google Ads click from google_ads_click().
 	 *
 	 * @return bool True if the attribution may be uploaded.
 	 * @since 1.11.0
@@ -255,16 +265,30 @@ final class Conversion_Reporter {
 	 * Resolves the Google Ads click identifier of a hash.
 	 *
 	 * The only place that decides which captured click IDs count as a Google
-	 * Ads click, so supporting further identifier types means changing this
-	 * method alone.
+	 * Ads click. The first identifier type in Click_Id_Type::cases() order
+	 * with a non-empty value wins: gclid, then gbraid, then wbraid. Exactly
+	 * one is uploaded, which is always valid, whereas Google Ads rejects
+	 * gbraid together with wbraid. The type and `captured_at` come from the
+	 * entry chosen.
 	 *
 	 * @param array<string,mixed> $hash_click_ids Platform => structured click data for the hash.
 	 *
-	 * @return array{id: string, captured_at: int}|null The click, or null if the hash has no Google Ads click identifier.
+	 * @return array{type: Click_Id_Type, id: string, captured_at: int}|null The click, or null if the hash has no Google Ads click identifier.
 	 * @since 1.11.0
 	 */
 	private function google_ads_click( array $hash_click_ids ): ?array {
-		return empty( $hash_click_ids['google_ads']['id'] ) ? null : $hash_click_ids['google_ads'];
+		foreach ( Click_Id_Type::cases() as $type ) {
+			$entry = $hash_click_ids[ $type->platform() ] ?? null;
+			if ( ! empty( $entry['id'] ) ) {
+				return [
+					'type'        => $type,
+					'id'          => $entry['id'],
+					'captured_at' => $entry['captured_at'],
+				];
+			}
+		}
+
+		return null;
 	}
 
 	/**
