@@ -1,6 +1,6 @@
 <?php
 /**
- * Unit tests for Gclid_Capturer.
+ * Unit tests for Click_Id_Capturer.
  *
  * @package Tests\Unit
  * @since   0.2.0
@@ -8,14 +8,14 @@
 
 declare(strict_types=1);
 
-use Kntnt\Ad_Attribution_Gads\Gclid_Capturer;
+use Kntnt\Ad_Attribution_Gads\Click_Id_Capturer;
 
 // ─── register() ───
 
-describe('Gclid_Capturer::register()', function () {
+describe('Click_Id_Capturer::register()', function () {
 
     it('adds google_ads => gclid to an empty array', function () {
-        $capturer = new Gclid_Capturer();
+        $capturer = new Click_Id_Capturer();
 
         $result = $capturer->register([]);
 
@@ -23,7 +23,7 @@ describe('Gclid_Capturer::register()', function () {
     });
 
     it('preserves existing capturers', function () {
-        $capturer = new Gclid_Capturer();
+        $capturer = new Click_Id_Capturer();
 
         $result = $capturer->register(['facebook' => 'fbclid']);
 
@@ -34,7 +34,7 @@ describe('Gclid_Capturer::register()', function () {
     });
 
     it('overwrites a pre-existing google_ads entry', function () {
-        $capturer = new Gclid_Capturer();
+        $capturer = new Click_Id_Capturer();
 
         $result = $capturer->register(['google_ads' => 'custom_param']);
 

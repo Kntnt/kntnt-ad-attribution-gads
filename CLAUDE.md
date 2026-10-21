@@ -38,7 +38,7 @@ The `Dependencies` constructor hooks filters immediately (before `plugins_loaded
 
 1. `Updater` — GitHub-based update checker
 2. `Migrator` — database migration runner
-3. `Gclid_Capturer` — registers `gclid` parameter on the core plugin's click-ID capture filter
+3. `Click_Id_Capturer` — registers the Google Ads click-ID parameters on the core plugin's click-ID capture filter
 4. `Settings` — reads/writes `kntnt_ad_attr_gads_settings` option (API credentials + conversion defaults)
 5. Core `Logger` — retrieved from `Kntnt\Ad_Attribution\Plugin::get_instance()->logger`
 6. `Settings_Page` — WordPress Settings API page under Settings > Google Ads Attribution (registers `admin_menu`, `admin_init`, `admin_notices`, `admin_enqueue_scripts` hooks in the constructor; `rest_api_init` always)
@@ -108,7 +108,7 @@ kntnt-ad-attribution-gads/
 │   ├── Dependencies.php               ← Core plugin dependency enforcement
 │   ├── Updater.php                    ← GitHub release update checker
 │   ├── Migrator.php                   ← Database migration runner (version-based)
-│   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
+│   ├── Click_Id_Capturer.php         ← Registers Google Ads click IDs on the click-ID capture filter
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
 │   ├── Settings_Page.php             ← Admin settings page (3 sections) + credential error notice
 │   ├── Conversion_Reporter.php       ← Enqueue/process callbacks + credential error transient flag
@@ -137,7 +137,7 @@ kntnt-ad-attribution-gads/
         ├── MigratorTest.php           ← Migration runner tests
         ├── PluginTest.php             ← Plugin metadata and lifecycle tests
         ├── UpdaterTest.php            ← GitHub update checker tests
-        ├── GclidCapturerTest.php      ← Gclid capturer registration tests
+        ├── ClickIdCapturerTest.php    ← Click-ID capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
         ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
         ├── BootstrapSafetyTest.php     ← Try-catch safety wrapper tests

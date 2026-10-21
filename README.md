@@ -364,7 +364,7 @@ Requires `zip`. With `--tag`: `git`. With `--update` or `--create`: `gh` ([GitHu
 
 1. `Updater` — GitHub-based update checker
 2. `Migrator` — database migration runner
-3. `Gclid_Capturer` — registers `gclid` parameter on the click-ID capture filter
+3. `Click_Id_Capturer` — registers the Google Ads click-ID parameters on the click-ID capture filter
 4. `Settings` — reads/writes plugin settings option
 5. Core `Logger` — retrieved from `Kntnt\Ad_Attribution\Plugin::get_instance()->logger`
 6. `Settings_Page` — admin settings page under Settings > Google Ads Attribution
@@ -399,7 +399,7 @@ kntnt-ad-attribution-gads/
 │   ├── Dependencies.php               ← Core plugin dependency enforcement
 │   ├── Updater.php                    ← GitHub release update checker
 │   ├── Migrator.php                   ← Database migration runner (version-based)
-│   ├── Gclid_Capturer.php            ← Registers gclid on the click-ID capture filter
+│   ├── Click_Id_Capturer.php         ← Registers Google Ads click IDs on the click-ID capture filter
 │   ├── Settings.php                   ← Settings read/write (kntnt_ad_attr_gads_settings option)
 │   ├── Settings_Page.php             ← Admin settings page (3 sections: credentials, action, defaults)
 │   ├── Conversion_Reporter.php       ← Registers enqueue/process callbacks for conversion reporting
@@ -422,7 +422,7 @@ kntnt-ad-attribution-gads/
         ├── MigratorTest.php           ← Migration runner tests
         ├── PluginTest.php             ← Plugin metadata and lifecycle tests
         ├── UpdaterTest.php            ← GitHub update checker tests
-        ├── GclidCapturerTest.php      ← Gclid capturer registration tests
+        ├── ClickIdCapturerTest.php    ← Click-ID capturer registration tests
         ├── SettingsTest.php           ← Settings read/write/is_configured tests
         ├── SettingsPageTest.php       ← Settings page sanitization + credential notice tests
         ├── BootstrapSafetyTest.php    ← Try-catch safety wrapper tests

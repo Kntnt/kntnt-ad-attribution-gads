@@ -22,7 +22,7 @@ namespace Kntnt\Ad_Attribution_Gads;
  *
  * @since 0.2.0
  */
-final class Gclid_Capturer {
+final class Click_Id_Capturer {
 
 	/**
 	 * Adds the Google Ads gclid capturer to the registered capturers.
