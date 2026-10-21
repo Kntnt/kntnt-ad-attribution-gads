@@ -20,7 +20,7 @@ The plugin uses two adapter hooks provided by the core plugin:
 
 2. **Conversion reporting** (`kntnt_ad_attr_conversion_reporters`): Registers `enqueue` and `process` callbacks. When a conversion is attributed with a weight above zero to a click that carried a `gclid`, a payload with that click's `gclid` is built and queued for asynchronous processing. By default, each conversion produces at most one upload, even under a multi-touch attribution model (see [Multi-Touch Attribution](#multi-touch-attribution)). Each job is deferred by 6 hours from the time of the attributed click (via the core queue's `not_before` parameter), giving Google Ads time to register the click before accepting the conversion upload. Clicks already older than 6 hours are processed immediately. The queue processor then sends the conversion to the Google Ads Offline Conversion Upload API.
 
-Both hooks rely on Kntnt Ad Attribution 1.10.0 or later, the first version that stores click IDs per click. Earlier versions kept one click ID per tracking URL and reported the latest one, which could belong to another visitor. With an older core version the add-on registers neither hook and shows an admin notice asking you to update the core plugin. The core's 1.10.0 update deletes click IDs stored by earlier versions, so conversions attributed to clicks made before that update are not uploaded.
+Both hooks rely on Kntnt Ad Attribution 1.11.0 or later. Version 1.10.0 was the first to store click IDs per click; earlier versions kept one click ID per tracking URL and reported the latest one, which could belong to another visitor. Version 1.11.0 lets a click-ID capturer declare that its value may be shared between clicks, which the `gbraid` and `wbraid` capturers rely on. With an older core version the add-on registers neither hook and shows an admin notice asking you to update the core plugin. The core's 1.10.0 update deletes click IDs stored by earlier versions, so conversions attributed to clicks made before that update are not uploaded.
 
 The plugin creates no custom tables, CPTs, or cookies. It schedules a weekly background check of the Google Ads connection and registers three REST API endpoints for settings page operations (test connection, create conversion action, fetch conversion action details). It relies on the core plugin's infrastructure for click-ID storage and conversion queuing.
 
@@ -64,7 +64,7 @@ The **Test Connection** button verifies all credentials using the current form v
 
 ### Limitations
 
-- **Requires the core plugin.** This is an add-on — [Kntnt Ad Attribution](https://github.com/Kntnt/kntnt-ad-attribution) 1.10.0 or later must be installed and active.
+- **Requires the core plugin.** This is an add-on — [Kntnt Ad Attribution](https://github.com/Kntnt/kntnt-ad-attribution) 1.11.0 or later must be installed and active.
 - **Google Ads API credentials required.** Conversion reporting requires a Google Ads Customer ID, Conversion Action ID, OAuth2 credentials, and a Developer Token. Configure these under Settings > Google Ads Attribution.
 - **Attribution window limited by cookie lifetime.** The core plugin's cookie lifetime (default: 90 days) determines the maximum attribution window, even though Google Ads allows up to 90 days for offline conversion uploads.
 
@@ -90,9 +90,9 @@ If the core plugin is not active when you try to activate this add-on, activatio
 |-------------|---------|
 | PHP | 8.3 |
 | WordPress | 6.9 |
-| Kntnt Ad Attribution | 1.10.0 |
+| Kntnt Ad Attribution | 1.11.0 |
 
-The plugin checks the PHP version on activation and aborts with a clear error message if the requirement is not met. If the core plugin is older than 1.10.0, the add-on stays inactive and an admin notice names the required and the installed version.
+The plugin checks the PHP version on activation and aborts with a clear error message if the requirement is not met. If the core plugin is older than 1.11.0, the add-on stays inactive and an admin notice names the required and the installed version.
 
 
 
@@ -503,7 +503,7 @@ PHP 8.3+ and Composer. With DDEV, only DDEV itself needs to be installed locally
 - `uninstall.php` runs without the namespace autoloader — use fully qualified function calls and raw `$wpdb`.
 - The `Dependencies` class hooks `plugin_action_links` in its constructor, before `plugins_loaded`, so the deactivation guard is active regardless of plugin load order.
 - `Dependencies::guard_activation()` loads `plugin.php` explicitly because `is_plugin_active()` may not be available during activation hooks.
-- The minimum core version is `Dependencies::MIN_CORE_VERSION` (`1.10.0`, the first core release that stores click IDs per click). The `plugins_loaded` bootstrap in the main plugin file compares it with `\Kntnt\Ad_Attribution\Plugin::get_version()`. Raise it whenever the add-on starts to rely on a newer core contract.
+- The minimum core version is `Dependencies::MIN_CORE_VERSION` (`1.11.0`, the first core release that accepts non-unique click-ID capturers; 1.10.0 was the first to store click IDs per click). The `plugins_loaded` bootstrap in the main plugin file compares it with `\Kntnt\Ad_Attribution\Plugin::get_version()`. Raise it whenever the add-on starts to rely on a newer core contract.
 
 ### Contributor FAQ
 

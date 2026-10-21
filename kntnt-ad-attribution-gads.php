@@ -88,7 +88,8 @@ add_action( 'plugins_loaded', static function (): void {
 
 		// Abort with an admin notice if the core plugin is too old. Registering
 		// nothing at all, as if the core were missing, guarantees that no
-		// conversion is queued through the old per-URL click-ID lookup.
+		// conversion is queued through the old per-URL click-ID lookup, and
+		// that no braid capturer is mistaken for a unique one.
 		$core_version = \Kntnt\Ad_Attribution\Plugin::get_version();
 		if ( version_compare( $core_version, Dependencies::MIN_CORE_VERSION, '<' ) ) {
 			add_action( 'admin_notices', static function () use ( $core_version ): void {

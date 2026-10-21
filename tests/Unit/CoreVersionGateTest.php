@@ -105,22 +105,23 @@ describe('Core version gate', function () {
         set_plugin_statics(['instance' => null, 'plugin_file' => $this->plugin_file]);
     });
 
-    it('leaves the add-on inert when the core is older than 1.10.0', function (string $core_version) {
+    it('leaves the add-on inert when the core is older than 1.11.0', function (string $core_version) {
         boot_against_core($core_version);
 
         expect(has_filter('kntnt_ad_attr_click_id_capturers'))->toBeFalse();
         expect(has_filter('kntnt_ad_attr_conversion_reporters'))->toBeFalse();
         expect(has_action(Connection_Monitor::WEEKLY_HOOK))->toBeFalse();
     })->with([
-        'last release before the fix' => '1.9.1',
-        'no version in the header'    => '',
+        'last release before non-unique capturers' => '1.10.0',
+        'last release before per-click click IDs'  => '1.9.1',
+        'no version in the header'                 => '',
     ]);
 
     it('tells admins the required and the installed core version', function () {
-        $notices = boot_against_core('1.9.1');
+        $notices = boot_against_core('1.10.0');
 
         expect($notices)->toHaveCount(1);
-        expect(render_notice($notices[0]))->toContain('1.10.0')->toContain('1.9.1');
+        expect(render_notice($notices[0]))->toContain('1.11.0')->toContain('1.10.0');
     });
 
     it('tells admins the installed core version is unknown when its header has none', function () {
@@ -128,7 +129,7 @@ describe('Core version gate', function () {
 
         expect($notices)->toHaveCount(1);
         expect(render_notice($notices[0]))
-            ->toContain('1.10.0')
+            ->toContain('1.11.0')
             ->toContain('an unknown version')
             ->not->toContain(' .');
     });
@@ -150,7 +151,7 @@ describe('Core version gate', function () {
         expect(has_filter('kntnt_ad_attr_conversion_reporters'))->toBeFalse();
     });
 
-    it('initializes as before when the core is 1.10.0 or newer', function (string $core_version) {
+    it('initializes as before when the core is 1.11.0 or newer', function (string $core_version) {
         $notices = boot_against_core($core_version);
 
         expect(has_filter('kntnt_ad_attr_click_id_capturers'))->toBeTrue();
@@ -158,9 +159,9 @@ describe('Core version gate', function () {
         expect(has_action(Connection_Monitor::WEEKLY_HOOK))->toBeTrue();
         expect($notices)->toBe([]);
     })->with([
-        'the first release with the fix' => '1.10.0',
-        'a later patch release'          => '1.10.1',
-        'a later major release'          => '2.0.0',
+        'the first release with non-unique capturers' => '1.11.0',
+        'a later patch release'                       => '1.11.1',
+        'a later major release'                       => '2.0.0',
     ]);
 
 });
