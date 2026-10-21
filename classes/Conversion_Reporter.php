@@ -297,16 +297,21 @@ final class Conversion_Reporter {
 		$refresh_token        = $payload['refresh_token'] ?: $settings['refresh_token'];
 		$login_customer_id    = $payload['login_customer_id'] ?: $settings['login_customer_id'];
 
+		// Logger lines say "gbraid: 0AAAAAD…", error_log() prose "gbraid 0AAAAAD…".
+		$click     = $this->queued_click( $payload );
+		$click_log = "{$click['type']->value}: {$click['id']}";
+		$click_msg = "{$click['type']->value} {$click['id']}";
+
 		// Abort if required credentials are still missing after merge.
 		if ( ! $customer_id || ! $conversion_action_id || ! $developer_token || ! $client_id || ! $client_secret || ! $refresh_token ) {
 			set_transient( self::CREDENTIAL_ERROR_TRANSIENT, 'missing', 0 );
-			$this->logger->error( 'GADS', "Aborted — gclid: {$payload['gclid']}, missing credentials" );
-			error_log( "Kntnt Ad Attribution Gads: Cannot process gclid {$payload['gclid']} — required credentials still missing." );
+			$this->logger->error( 'GADS', "Aborted — {$click_log}, missing credentials" );
+			error_log( "Kntnt Ad Attribution Gads: Cannot process {$click_msg} — required credentials still missing." );
 			return false;
 		}
 
 		// Log processing start with diagnostic context.
-		$this->logger->info( 'GADS', "Processing — gclid: {$payload['gclid']}, customer: {$customer_id}, action_id: {$conversion_action_id}" );
+		$this->logger->info( 'GADS', "Processing — {$click_log}, customer: {$customer_id}, action_id: {$conversion_action_id}" );
 
 		// Compute derived values from merged raw data.
 		$conversion_action = "customers/{$customer_id}/conversionActions/{$conversion_action_id}";
@@ -324,8 +329,8 @@ final class Conversion_Reporter {
 		);
 
 		$result = $client->upload_click_conversion(
-			Click_Id_Type::Gclid,
-			$payload['gclid'],
+			$click['type'],
+			$click['id'],
 			$conversion_action,
 			$payload['conversion_datetime'],
 			$attributed_value,
@@ -347,12 +352,12 @@ final class Conversion_Reporter {
 			// worked), so clear any stale credential error flag.
 			if ( ! empty( $result['permanent_failure'] ) ) {
 				delete_transient( self::CREDENTIAL_ERROR_TRANSIENT );
-				$this->logger->error( 'GADS', "Permanent failure — gclid: {$payload['gclid']}, will not retry: {$result['error']}" );
-				error_log( "Kntnt Ad Attribution Gads: Permanent failure for gclid {$payload['gclid']}: {$result['error']}" );
+				$this->logger->error( 'GADS', "Permanent failure — {$click_log}, will not retry: {$result['error']}" );
+				error_log( "Kntnt Ad Attribution Gads: Permanent failure for {$click_msg}: {$result['error']}" );
 				return true;
 			}
 
-			error_log( "Kntnt Ad Attribution Gads: Conversion upload failed for gclid {$payload['gclid']}: {$result['error']}" );
+			error_log( "Kntnt Ad Attribution Gads: Conversion upload failed for {$click_msg}: {$result['error']}" );
 			return false;
 		}
 
@@ -360,6 +365,26 @@ final class Conversion_Reporter {
 		delete_transient( self::CREDENTIAL_ERROR_TRANSIENT );
 
 		return true;
+	}
+
+	/**
+	 * Reads the click identifier from a queued payload.
+	 *
+	 * Payloads queued before 1.11.0 have a `gclid` key and no type, so a
+	 * missing `click_id_type` means gclid. An unknown type throws a
+	 * ValueError, which the core queue records as a failed job.
+	 *
+	 * @param array<string,mixed> $payload Queue payload from enqueue().
+	 *
+	 * @return array{type: Click_Id_Type, id: string} The identifier to upload.
+	 * @since 1.11.0
+	 */
+	private function queued_click( array $payload ): array {
+		if ( ! isset( $payload['click_id_type'] ) ) {
+			return [ 'type' => Click_Id_Type::Gclid, 'id' => $payload['gclid'] ];
+		}
+
+		return [ 'type' => Click_Id_Type::from( $payload['click_id_type'] ), 'id' => $payload['click_id'] ];
 	}
 
 	/**

@@ -561,6 +561,123 @@ describe('Conversion_Reporter::enqueue() attribution selection', function () {
 
 // ─── process() ───
 
+/**
+ * Returns a complete queued payload around the given click identifier keys.
+ *
+ * @param array<string,string> $click Identifier keys, e.g. ['gclid' => 'G1']
+ *                                    for a payload queued before 1.11.0.
+ *
+ * @return array<string,mixed>
+ */
+function queued_payload(array $click): array {
+    return $click + [
+        'conversion_datetime'  => '2026-01-15 10:30:00+01:00',
+        'attribution_fraction' => 1.0,
+        'customer_id'          => '1234567890',
+        'conversion_action_id' => '99',
+        'conversion_value'     => '1000',
+        'currency_code'        => 'SEK',
+        'developer_token'      => 'dev_token',
+        'client_id'            => 'client.apps.googleusercontent.com',
+        'client_secret'        => 'secret',
+        'refresh_token'        => 'refresh_abc',
+        'login_customer_id'    => '',
+    ];
+}
+
+/**
+ * Processes a payload against an API stub that accepts every upload, and
+ * returns the one conversion the upload request carried.
+ *
+ * @param Conversion_Reporter $reporter Reporter under test.
+ * @param array<string,mixed> $payload  Queued payload.
+ *
+ * @return array<string,mixed> The uploaded ClickConversion.
+ */
+function uploaded_conversion_of(Conversion_Reporter $reporter, array $payload): array {
+    Functions\when('get_transient')->justReturn('cached_token');
+    Functions\when('is_wp_error')->justReturn(false);
+    Functions\when('delete_transient')->justReturn(true);
+    Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+    Functions\when('wp_remote_retrieve_response_code')->alias(fn ($response) => $response['response']['code'] ?? 0);
+    Functions\when('wp_remote_retrieve_body')->alias(fn ($response) => $response['body'] ?? '');
+
+    $body = null;
+    Functions\expect('wp_remote_post')
+        ->once()
+        ->andReturnUsing(function (string $url, array $args) use (&$body) {
+            $body = json_decode($args['body'], true);
+            return ['response' => ['code' => 200], 'body' => json_encode(['results' => [[]]])];
+        });
+
+    expect($reporter->process($payload))->toBeTrue();
+    expect($body['conversions'])->toHaveCount(1);
+
+    return $body['conversions'][0];
+}
+
+/**
+ * Returns the click identifier fields of an uploaded ClickConversion.
+ *
+ * @param array<string,mixed> $conversion Uploaded ClickConversion.
+ *
+ * @return array<string,mixed> Only its gclid, gbraid and wbraid fields.
+ */
+function click_identifiers(array $conversion): array {
+    return array_intersect_key($conversion, array_flip(['gclid', 'gbraid', 'wbraid']));
+}
+
+describe('Conversion_Reporter::process() click identifiers', function () {
+
+    it('uploads a queued click identifier in the field of its type only', function (string $type) {
+        $payload = queued_payload(['click_id_type' => $type, 'click_id' => 'ID_123']);
+
+        $conversion = uploaded_conversion_of(selection_reporter(), $payload);
+
+        expect(click_identifiers($conversion))->toBe([$type => 'ID_123']);
+    })->with(['gclid', 'gbraid', 'wbraid']);
+
+    it('uploads a payload queued before 1.11.0, which has only a gclid, as a gclid', function () {
+        $payload = queued_payload(['gclid' => 'gclid_legacy']);
+
+        $conversion = uploaded_conversion_of(selection_reporter(), $payload);
+
+        expect(click_identifiers($conversion))->toBe(['gclid' => 'gclid_legacy']);
+        expect($conversion['conversionAction'])->toBe('customers/1234567890/conversionActions/99');
+    });
+
+    it('names the identifier type when an upload fails', function () {
+        Functions\when('get_transient')->justReturn('cached_token');
+        Functions\when('is_wp_error')->justReturn(false);
+        Functions\when('wp_json_encode')->alias(fn ($data) => json_encode($data));
+        Functions\when('wp_remote_retrieve_response_code')->alias(fn ($response) => $response['response']['code'] ?? 0);
+        Functions\when('wp_remote_retrieve_body')->alias(fn ($response) => $response['body'] ?? '');
+        Functions\when('wp_remote_post')->justReturn(['response' => ['code' => 403], 'body' => 'Forbidden']);
+
+        $logged = [];
+        \Patchwork\redefine('error_log', function (string $message) use (&$logged) {
+            $logged[] = $message;
+            return true;
+        });
+
+        $messages = [];
+        $logger   = Mockery::mock(Logger::class)->shouldIgnoreMissing();
+        $logger->shouldReceive('info')->andReturnUsing(function (string $prefix, string $message) use (&$messages) {
+            $messages[] = $message;
+        });
+
+        $result = selection_reporter($logger)->process(queued_payload(['click_id_type' => 'wbraid', 'click_id' => 'W_123']));
+
+        expect($result)->toBeFalse();
+        expect($logged)->toHaveCount(1);
+        expect($logged[0])->toContain('wbraid W_123')->not->toContain('gclid');
+        expect($messages[0])->toStartWith('Processing — wbraid: W_123,');
+
+        \Patchwork\restoreAll();
+    });
+
+});
+
 describe('Conversion_Reporter::process()', function () {
 
     it('uses payload credentials when present', function () {
