@@ -54,6 +54,7 @@ final class Plugin {
 	 *
 	 * @var Click_Id_Capturer
 	 * @since 0.2.0
+	 * @since 1.11.0 Renamed from $gclid_capturer.
 	 */
 	public readonly Click_Id_Capturer $click_id_capturer;
 

@@ -106,7 +106,7 @@ add_action( 'plugins_loaded', static function (): void {
 					'<div class="notice notice-error"><p>%s</p></div>',
 					esc_html(
 						sprintf(
-							/* translators: 1: Required Kntnt Ad Attribution version, e.g. "1.10.0". 2: Installed Kntnt Ad Attribution version, e.g. "1.9.1", or "an unknown version" when the plugin does not report one. */
+							/* translators: 1: Required Kntnt Ad Attribution version, e.g. "1.11.0". 2: Installed Kntnt Ad Attribution version, e.g. "1.10.0", or "an unknown version" when the plugin does not report one. */
 							__( 'Kntnt Ad Attribution for Google Ads requires Kntnt Ad Attribution %1$s or later, but %2$s is installed. Until you update it, Google Ads clicks are not captured and conversions are not reported to Google Ads.', 'kntnt-ad-attr-gads' ),
 							Dependencies::MIN_CORE_VERSION,
 							$installed_version,
