@@ -64,8 +64,9 @@ enum Click_Id_Type: string {
 	 * Tells whether a value of this type identifies a single click.
 	 *
 	 * Google describes gbraid as measuring "in a non-unique fashion (like
-	 * Campaign ID)", so different visitors may arrive with the same braid
-	 * value. The core must not treat a shared braid as a repeat click.
+	 * Campaign ID)". It documents nothing on wbraid, which is treated alike
+	 * to be safe. Different visitors may thus arrive with the same braid
+	 * value, and the core must not treat a shared braid as a repeat click.
 	 *
 	 * @return bool True if each value belongs to one click only.
 	 * @since 1.11.0

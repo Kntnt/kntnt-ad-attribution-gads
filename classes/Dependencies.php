@@ -51,7 +51,7 @@ final class Dependencies {
 	 * the latest click ID captured for the tracking URL, which may be
 	 * another visitor's gclid. Core 1.11.0 accepts capturers declared
 	 * non-unique, which the gbraid and wbraid capturers must be: a braid
-	 * value is shared between clicks, so in 1.10.0 a new visitor's click
+	 * value can be shared between clicks, so in 1.10.0 a new visitor's click
 	 * would count as a repeat of an older click with the same braid and
 	 * inherit that click's gclid. Read by the bootstrap gate in the main
 	 * plugin file.
