@@ -299,10 +299,14 @@ final class Conversion_Reporter {
 	 * are restored. Computes derived values (resource name, attributed
 	 * value) from the merged data.
 	 *
+	 * A payload whose click identifier cannot be read (see queued_click())
+	 * is a permanent failure: it is logged and ended without a request.
+	 *
 	 * @param array<string,mixed> $payload Queue payload from enqueue().
 	 *
-	 * @return bool True on success, false on failure (will be retried).
+	 * @return bool True on success or permanent failure (not retried), false on failure (will be retried).
 	 * @since 0.3.0
+	 * @since 1.11.0 Ends a payload with an unreadable click identifier as a permanent failure.
 	 */
 	public function process( array $payload ): bool {
 		$settings = $this->settings->get_all();
@@ -321,10 +325,21 @@ final class Conversion_Reporter {
 		$refresh_token        = $payload['refresh_token'] ?: $settings['refresh_token'];
 		$login_customer_id    = $payload['login_customer_id'] ?: $settings['login_customer_id'];
 
+		$click = $this->queued_click( $payload );
+
+		// No retry or settings change can make such a payload uploadable,
+		// and a failed job would be reset on every settings save only to
+		// fail again, so end it like a permanent API failure.
+		if ( $click === null ) {
+			$click_fields = wp_json_encode( array_intersect_key( $payload, array_flip( [ 'click_id_type', 'click_id', 'gclid' ] ) ) );
+			$this->logger->error( 'GADS', "Permanent failure — unreadable click identifier, will not retry: {$click_fields}" );
+			error_log( "Kntnt Ad Attribution Gads: Permanent failure — queued payload has no readable click identifier: {$click_fields}" );
+			return true;
+		}
+
 		// The value alone does not show which field it is sent in, so both
 		// logs name the type, each in its own style: Logger lines are lists
 		// of "key: value" pairs, error_log() messages are sentences.
-		$click                  = $this->queued_click( $payload );
 		$click_id_for_logger    = "{$click['type']->value}: {$click['id']}";
 		$click_id_for_error_log = "{$click['type']->value} {$click['id']}";
 
@@ -397,20 +412,31 @@ final class Conversion_Reporter {
 	 * Reads the click identifier from a queued payload.
 	 *
 	 * Payloads queued before 1.11.0 have a `gclid` key and no type, so a
-	 * missing `click_id_type` means gclid. An unknown type throws a
-	 * ValueError, which the core queue records as a failed job.
+	 * missing `click_id_type` means gclid. The identifier cannot be read
+	 * if the type is not a Click_Id_Type value, or if the value (`click_id`,
+	 * or `gclid` for a legacy payload) is missing or empty.
 	 *
 	 * @param array<string,mixed> $payload Queue payload from enqueue().
 	 *
-	 * @return array{type: Click_Id_Type, id: string} The identifier to upload.
+	 * @return array{type: Click_Id_Type, id: string}|null The identifier to upload, or null if it cannot be read.
 	 * @since 1.11.0
 	 */
-	private function queued_click( array $payload ): array {
-		if ( ! isset( $payload['click_id_type'] ) ) {
-			return [ 'type' => Click_Id_Type::Gclid, 'id' => $payload['gclid'] ];
+	private function queued_click( array $payload ): ?array {
+		if ( isset( $payload['click_id_type'] ) ) {
+
+			// tryFrom() throws on a non-string under strict types.
+			$type = is_string( $payload['click_id_type'] ) ? Click_Id_Type::tryFrom( $payload['click_id_type'] ) : null;
+			$id   = $payload['click_id'] ?? '';
+		} else {
+			$type = Click_Id_Type::Gclid;
+			$id   = $payload['gclid'] ?? '';
 		}
 
-		return [ 'type' => Click_Id_Type::from( $payload['click_id_type'] ), 'id' => $payload['click_id'] ];
+		if ( $type === null || ! is_string( $id ) || $id === '' ) {
+			return null;
+		}
+
+		return [ 'type' => $type, 'id' => $id ];
 	}
 
 	/**

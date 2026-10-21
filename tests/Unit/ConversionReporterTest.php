@@ -755,6 +755,58 @@ describe('Conversion_Reporter::process() click identifiers', function () {
         \Patchwork\restoreAll();
     });
 
+    it('ends a job whose click identifier type is unknown without uploading it', function (mixed $type) {
+        stub_wp_json_encode();
+        Functions\expect('wp_remote_post')->never();
+
+        $logged = [];
+        \Patchwork\redefine('error_log', function (string $message) use (&$logged) {
+            $logged[] = $message;
+            return true;
+        });
+
+        $errors = [];
+        $result = selection_reporter(recording_logger($errors, 'error'))->process(queued_payload(['click_id_type' => $type, 'click_id' => 'D_123']));
+
+        expect($result)->toBeTrue();
+        expect($errors)->toHaveCount(1);
+        expect($errors[0])->toStartWith('Permanent failure')->toContain((string) $type);
+        expect($logged)->toHaveCount(1);
+        expect($logged[0])->toContain('Permanent failure')->toContain((string) $type);
+
+        \Patchwork\restoreAll();
+    })->with([
+        'unknown name' => ['dclid'],
+        'not a string' => [7],
+    ]);
+
+    it('ends a job without a click identifier value without uploading it', function (array $click) {
+        stub_wp_json_encode();
+        Functions\expect('wp_remote_post')->never();
+
+        $logged = [];
+        \Patchwork\redefine('error_log', function (string $message) use (&$logged) {
+            $logged[] = $message;
+            return true;
+        });
+
+        $errors = [];
+        $result = selection_reporter(recording_logger($errors, 'error'))->process(queued_payload($click));
+
+        expect($result)->toBeTrue();
+        expect($errors)->toHaveCount(1);
+        expect($errors[0])->toStartWith('Permanent failure');
+        expect($logged)->toHaveCount(1);
+        expect($logged[0])->toContain('Permanent failure');
+
+        \Patchwork\restoreAll();
+    })->with([
+        'no click_id'         => [['click_id_type' => 'gbraid']],
+        'empty click_id'      => [['click_id_type' => 'gbraid', 'click_id' => '']],
+        'legacy, no gclid'    => [[]],
+        'legacy, empty gclid' => [['gclid' => '']],
+    ]);
+
 });
 
 describe('Conversion_Reporter::process()', function () {
