@@ -1525,6 +1525,36 @@ describe('Google_Ads_Client::create_conversion_action()', function () {
         expect($create['valueSettings']['defaultCurrencyCode'])->toBe('EUR');
     });
 
+    it('creates an action that counts every conversion, which gbraid and wbraid uploads require', function () {
+        stub_cached_token();
+        stub_wp_json_encode();
+        stub_response_helpers();
+
+        // First call: duplicate-name search. Second call: the mutate request.
+        $create = null;
+        Functions\expect('wp_remote_post')
+            ->twice()
+            ->andReturnUsing(function (string $url, array $args) use (&$create) {
+                if (str_ends_with($url, 'googleAds:search')) {
+                    return ['response' => ['code' => 200], 'body' => json_encode(['results' => []])];
+                }
+                $create = json_decode($args['body'], true)['operations'][0]['create'];
+                return [
+                    'response' => ['code' => 200],
+                    'body'     => json_encode(['results' => [['resourceName' => 'customers/1234567890/conversionActions/56']]]),
+                ];
+            });
+
+        Functions\expect('is_wp_error')->twice()->andReturn(false);
+
+        make_client()->create_conversion_action('Braid Lead', 0.0, 'SEK');
+
+        // ONE_PER_CLICK actions reject braids with
+        // ONE_PER_CLICK_CONVERSION_ACTION_NOT_PERMITTED_WITH_BRAID, and the
+        // API documents no default counting type.
+        expect($create['countingType'])->toBe('MANY_PER_CLICK');
+    });
+
     it('returns credential error on token refresh failure', function () {
         // No cached token.
         Functions\expect('get_transient')

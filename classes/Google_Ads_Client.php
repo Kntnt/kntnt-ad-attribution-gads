@@ -277,6 +277,7 @@ final class Google_Ads_Client {
 	 *
 	 * @return array{success: bool, error: string, credential_error: bool, conversion_action_id: string} Result with success flag, error message, credential error flag, and new conversion action ID.
 	 * @since 1.5.0
+	 * @since 1.11.0 Creates the action with counting type MANY_PER_CLICK.
 	 */
 	public function create_conversion_action(
 		string $name,
@@ -307,7 +308,9 @@ final class Google_Ads_Client {
 			return $fail( sprintf( 'A conversion action named "%s" already exists (ID: %s).', $name, $existing['id'] ) );
 		}
 
-		// Build the create payload.
+		// Build the create payload. The counting type is set explicitly
+		// because the API documents no default and gbraid and wbraid uploads
+		// fail against an action that counts one conversion per click.
 		$body = [
 			'operations' => [
 				[
@@ -316,6 +319,7 @@ final class Google_Ads_Client {
 						'type'          => 'UPLOAD_CLICKS',
 						'category'      => $category,
 						'status'        => 'ENABLED',
+						'countingType'  => 'MANY_PER_CLICK',
 						'valueSettings' => [
 							'defaultValue'          => $default_value,
 							'alwaysUseDefaultValue' => true,
